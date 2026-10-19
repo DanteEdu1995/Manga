@@ -94,7 +94,8 @@ export const fetchAccountsFromSupabase = async (): Promise<UserAccount[]> => {
       lastLogin: row.last_login || row.created_at,
       avatarGradient: row.avatar_gradient,
       isAnonymous: !!row.is_anonymous,
-      mangaCount: row.manga_count || 0
+      mangaCount: row.manga_count || 0,
+      password: row.password || 'inkrealm123'
     }));
   } catch (err) {
     console.error('Fallo de conexión con Supabase user_accounts:', err);
@@ -115,7 +116,8 @@ export const upsertAccountToSupabase = async (account: UserAccount): Promise<boo
       last_login: account.lastLogin,
       avatar_gradient: account.avatarGradient || null,
       is_anonymous: !!account.isAnonymous,
-      manga_count: account.mangaCount || 0
+      manga_count: account.mangaCount || 0,
+      password: account.password || 'inkrealm123'
     };
 
     const { error } = await supabaseInstance.from('user_accounts').upsert(payload, {
@@ -146,6 +148,7 @@ export const updateAccountInSupabase = async (
     if (updates.role !== undefined) dbPayload.role = updates.role;
     if (updates.lastLogin !== undefined) dbPayload.last_login = updates.lastLogin;
     if (updates.mangaCount !== undefined) dbPayload.manga_count = updates.mangaCount;
+    if (updates.password !== undefined) dbPayload.password = updates.password;
 
     const { error } = await supabaseInstance
       .from('user_accounts')
@@ -159,6 +162,29 @@ export const updateAccountInSupabase = async (
     return true;
   } catch (err) {
     console.error('Fallo actualizando cuenta en Supabase:', err);
+    return false;
+  }
+};
+
+export const updatePasswordInSupabase = async (
+  uid: string,
+  newPassword: string
+): Promise<boolean> => {
+  if (!supabaseInstance) return false;
+
+  try {
+    const { error } = await supabaseInstance
+      .from('user_accounts')
+      .update({ password: newPassword })
+      .eq('uid', uid);
+
+    if (error) {
+      console.warn('Error actualizando contraseña en Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Fallo actualizando contraseña en Supabase:', err);
     return false;
   }
 };
@@ -278,18 +304,22 @@ export const syncUserMangasToSupabase = async (
 // ==========================================
 // CÓDIGO SQL COPIABLE PARA SUPABASE
 // ==========================================
-export const SUPABASE_SETUP_SQL = `-- 1. Tabla de Cuentas para el Panel de Administrador de InkRealm
+export const SUPABASE_SETUP_SQL = `-- 1. Tabla de Cuentas para el Panel de Administrador de InkRealm (con control de contraseñas)
 CREATE TABLE IF NOT EXISTS public.user_accounts (
   uid TEXT PRIMARY KEY,
   email TEXT NOT NULL,
   display_name TEXT,
   role TEXT NOT NULL DEFAULT 'user',
+  password TEXT DEFAULT 'inkrealm123',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   last_login TIMESTAMPTZ DEFAULT NOW(),
   avatar_gradient TEXT,
   is_anonymous BOOLEAN DEFAULT FALSE,
   manga_count INTEGER DEFAULT 0
 );
+
+-- Migración segura por si la tabla ya existía previamente:
+ALTER TABLE public.user_accounts ADD COLUMN IF NOT EXISTS password TEXT DEFAULT 'inkrealm123';
 
 -- 2. Tabla de Mangas / Obras asociadas a cada usuario
 CREATE TABLE IF NOT EXISTS public.user_mangas (

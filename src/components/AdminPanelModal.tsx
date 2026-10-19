@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   BookOpen,
   Eye,
+  EyeOff,
   LogIn,
   Trash2,
   Edit3,
@@ -29,7 +30,10 @@ import {
   UploadCloud,
   CheckCircle2,
   ExternalLink,
-  Code
+  Code,
+  KeyRound,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { UserAccount, MangaItem, MangaFormat } from '../types';
 
@@ -46,6 +50,7 @@ interface AdminPanelModalProps {
     displayName: string;
     email: string;
     role: 'admin' | 'user';
+    password?: string;
     seedMangas?: boolean;
   }) => void;
   onUpdateAccount?: (accountData: {
@@ -53,7 +58,9 @@ interface AdminPanelModalProps {
     displayName: string;
     email: string;
     role: 'admin' | 'user' | 'guest';
+    password?: string;
   }) => void;
+  onUpdatePassword?: (uid: string, newPassword: string) => Promise<boolean> | boolean;
   onExportJson: () => void;
   isCloudMode: boolean;
   isSupabaseOnline?: boolean;
@@ -92,6 +99,16 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   dropped: { label: 'Abandonado', color: 'text-rose-400 bg-rose-400/10 border-rose-400/20' }
 };
 
+// Generador de contraseñas seguras
+const generateSecurePassword = (): string => {
+  const words = ['Manga', 'Hunter', 'Shadow', 'Titan', 'Dragon', 'Ninja', 'RealM', 'Otaku'];
+  const symbols = ['#', '!', '$', '&', '@'];
+  const randomWord = words[Math.floor(Math.random() * words.length)];
+  const randomNum = Math.floor(1000 + Math.random() * 9000);
+  const randomSym = symbols[Math.floor(Math.random() * symbols.length)];
+  return `${randomWord}${randomSym}${randomNum}`;
+};
+
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   isOpen,
   onClose,
@@ -103,6 +120,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onDeleteAccount,
   onCreateAccount,
   onUpdateAccount,
+  onUpdatePassword,
   onExportJson,
   isCloudMode,
   isSupabaseOnline = false,
@@ -116,6 +134,15 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'user' | 'guest'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'oldest' | 'mangas' | 'name' | 'lastLogin'>('recent');
 
+  // Control de contraseñas visibles por usuario (uid -> boolean)
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  const [copiedPasswordUid, setCopiedPasswordUid] = useState<string | null>(null);
+
+  // Modal para cambiar contraseña
+  const [passwordModalUser, setPasswordModalUser] = useState<UserAccount | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [passwordToast, setPasswordToast] = useState('');
+
   // Modal para inspeccionar mangas del usuario
   const [inspectingUser, setInspectingUser] = useState<UserAccount | null>(null);
   const [inspectingMangas, setInspectingMangas] = useState<MangaItem[]>([]);
@@ -126,6 +153,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     displayName: '',
     email: '',
     role: 'user' as 'admin' | 'user',
+    password: generateSecurePassword(),
     seedMangas: true
   });
 
@@ -134,7 +162,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [editForm, setEditForm] = useState({
     displayName: '',
     email: '',
-    role: 'user' as 'admin' | 'user' | 'guest'
+    role: 'user' as 'admin' | 'user' | 'guest',
+    password: ''
   });
 
   // Modal de configuración de Supabase
@@ -147,17 +176,25 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [copiedSql, setCopiedSql] = useState(false);
   const [supabaseMessage, setSupabaseMessage] = useState('');
 
-  // Copiado al portapapeles
+  // Copiado al portapapeles de UID
   const [copiedUid, setCopiedUid] = useState<string | null>(null);
 
-  // Helper para copiar UID
+  const toggleRevealPassword = (uid: string) => {
+    setRevealedPasswords((prev) => ({ ...prev, [uid]: !prev[uid] }));
+  };
+
+  const handleCopyPassword = (pwd: string, uid: string) => {
+    navigator.clipboard?.writeText(pwd);
+    setCopiedPasswordUid(uid);
+    setTimeout(() => setCopiedPasswordUid(null), 2000);
+  };
+
   const handleCopyUid = (uid: string) => {
     navigator.clipboard?.writeText(uid);
     setCopiedUid(uid);
     setTimeout(() => setCopiedUid(null), 2000);
   };
 
-  // Copiar SQL de Supabase
   const handleCopySql = () => {
     if (supabaseSqlScript) {
       navigator.clipboard?.writeText(supabaseSqlScript);
@@ -166,7 +203,35 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   };
 
-  // Guardar configuración de Supabase
+  const handleOpenPasswordModal = (account: UserAccount) => {
+    setPasswordModalUser(account);
+    setNewPasswordInput(generateSecurePassword());
+    setPasswordToast('');
+  };
+
+  const handleSavePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordModalUser || !newPasswordInput.trim()) return;
+
+    if (onUpdatePassword) {
+      await onUpdatePassword(passwordModalUser.uid, newPasswordInput.trim());
+    } else if (onUpdateAccount) {
+      onUpdateAccount({
+        uid: passwordModalUser.uid,
+        displayName: passwordModalUser.displayName,
+        email: passwordModalUser.email,
+        role: passwordModalUser.role,
+        password: newPasswordInput.trim()
+      });
+    }
+
+    setPasswordToast('✅ Contraseña actualizada correctamente en Supabase y Local.');
+    setTimeout(() => {
+      setPasswordModalUser(null);
+      setPasswordToast('');
+    }, 1500);
+  };
+
   const handleSaveSupabase = (e: React.FormEvent) => {
     e.preventDefault();
     if (onSaveSupabaseConfig) {
@@ -184,14 +249,13 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   };
 
-  // Sincronizar todas las cuentas a Supabase
   const handleSyncToSupabase = async () => {
     if (!onSyncAllToSupabase) return;
     setSupabaseSyncing(true);
-    setSupabaseMessage('Subiendo cuentas y datos a Supabase...');
+    setSupabaseMessage('Subiendo cuentas y contraseñas a Supabase...');
     try {
       await onSyncAllToSupabase();
-      setSupabaseMessage('✅ Todas las cuentas fueron sincronizadas con Supabase.');
+      setSupabaseMessage('✅ Cuentas y contraseñas sincronizadas con Supabase.');
       onRefreshAccounts();
     } catch {
       setSupabaseMessage('❌ Error sincronizando cuentas con Supabase.');
@@ -200,7 +264,6 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   };
 
-  // Abrir inspector de biblioteca
   const handleInspect = (account: UserAccount) => {
     setInspectingUser(account);
     try {
@@ -215,17 +278,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   };
 
-  // Abrir edición de cuenta
   const handleStartEdit = (account: UserAccount) => {
     setEditingUser(account);
     setEditForm({
       displayName: account.displayName || '',
       email: account.email || '',
-      role: account.role || 'user'
+      role: account.role || 'user',
+      password: account.password || 'inkrealm123'
     });
   };
 
-  // Guardar edición
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
@@ -234,13 +296,13 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         uid: editingUser.uid,
         displayName: editForm.displayName.trim() || editForm.email.split('@')[0],
         email: editForm.email.trim(),
-        role: editForm.role
+        role: editForm.role,
+        password: editForm.password.trim() || 'inkrealm123'
       });
     }
     setEditingUser(null);
   };
 
-  // Enviar formulario de creación
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newForm.email.trim()) return;
@@ -248,13 +310,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       displayName: newForm.displayName.trim() || newForm.email.split('@')[0],
       email: newForm.email.trim(),
       role: newForm.role,
+      password: newForm.password.trim() || generateSecurePassword(),
       seedMangas: newForm.seedMangas
     });
-    setNewForm({ displayName: '', email: '', role: 'user', seedMangas: true });
+    setNewForm({
+      displayName: '',
+      email: '',
+      role: 'user',
+      password: generateSecurePassword(),
+      seedMangas: true
+    });
     setIsCreateOpen(false);
   };
 
-  // Métricas KPI
   const stats = useMemo(() => {
     const total = accounts.length;
     const admins = accounts.filter((a) => a.role === 'admin').length;
@@ -264,7 +332,6 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     return { total, admins, readers, guests, totalMangas };
   }, [accounts]);
 
-  // Lista filtrada y ordenada
   const filteredAccounts = useMemo(() => {
     return accounts
       .filter((acc) => {
@@ -303,7 +370,6 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       });
   }, [accounts, search, roleFilter, sortBy]);
 
-  // Formateador de fechas relativas / legibles
   const formatDate = (dateStr?: string) => {
     if (!dateStr || dateStr === 'Nunca') return 'Nunca';
     try {
@@ -374,8 +440,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 {isSupabaseOnline
-                  ? 'Sincronizado en tiempo real con Supabase Cloud Database'
-                  : 'Audita y gestiona cuentas creadas en el sistema'}
+                  ? 'Sincronizado en tiempo real con Supabase Cloud Database (con control de contraseñas)'
+                  : 'Audita y gestiona cuentas, contraseñas y permisos del sistema'}
               </p>
             </div>
           </div>
@@ -461,21 +527,21 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
             <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                <Activity className="w-5 h-5" />
+                <KeyRound className="w-5 h-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Sesión Actual</span>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Control Claves</span>
                 <p className="text-xs font-bold text-white truncate">
-                  {currentUser?.displayName || currentUser?.email || 'Admin'}
+                  Gestión Activa
                 </p>
                 <span className="text-[10px] text-emerald-400 font-semibold">
-                  {currentUser?.role === 'admin' ? '👑 Admin Activo' : 'Lector'}
+                  {isSupabaseOnline ? 'En Supabase' : 'En Local'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* BARRA DE BÚSQUEDA, FILTROS Y ORDENAMIENTO */}
+          {/* BARRA DE BÚSQUEDA, FILTROS Y BOTÓN CREAR */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
               {/* Buscador */}
@@ -569,18 +635,18 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             </button>
           </div>
 
-          {/* FORMULARIO CREAR CUENTA NUEVA */}
+          {/* FORMULARIO CREAR CUENTA NUEVA CON CONTRASEÑA */}
           {isCreateOpen && (
             <div className="bg-[#080c18] border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-xl animate-in fade-in duration-200">
               <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                  <UserPlus className="w-4 h-4" /> Registrar Nueva Cuenta {isSupabaseOnline && '(Se guardará en Supabase)'}
+                  <UserPlus className="w-4 h-4" /> Registrar Nueva Cuenta {isSupabaseOnline && '(Se guardará en Supabase con contraseña)'}
                 </h4>
                 <span className="text-[10px] text-slate-500">Se registrará y sincronizará de inmediato</span>
               </div>
 
               <form onSubmit={handleCreateSubmit} className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-300 mb-1">Nombre / Nickname</label>
                     <input
@@ -604,7 +670,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Rol en la Plataforma</label>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Rol Asignado</label>
                     <select
                       value={newForm.role}
                       onChange={(e) => setNewForm({ ...newForm, role: e.target.value as any })}
@@ -613,6 +679,26 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       <option value="user">📖 Lector Normal</option>
                       <option value="admin">👑 Administrador</option>
                     </select>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-300">Contraseña</label>
+                      <button
+                        type="button"
+                        onClick={() => setNewForm({ ...newForm, password: generateSecurePassword() })}
+                        className="text-[10px] text-amber-400 hover:underline font-bold"
+                      >
+                        🎲 Generar
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Clave segura..."
+                      value={newForm.password}
+                      onChange={(e) => setNewForm({ ...newForm, password: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                    />
                   </div>
                 </div>
 
@@ -652,7 +738,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             <div className="flex items-center justify-between text-xs text-slate-400 px-1">
               <span>Mostrando {filteredAccounts.length} de {accounts.length} cuentas</span>
               <span className="text-[11px] text-slate-500">
-                Tip: Haz clic en el botón de rol para alternar entre Lector y Administrador
+                Tip: Haz clic en el ícono de llave 🔑 para ver o cambiar la contraseña de cualquier usuario
               </span>
             </div>
 
@@ -676,6 +762,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 const isSelf = currentUser?.uid === acc.uid;
                 const isAccountAdmin = acc.role === 'admin';
                 const isGuest = acc.role === 'guest' || acc.isAnonymous;
+                const isRevealed = !!revealedPasswords[acc.uid];
+                const displayPassword = acc.password || 'inkrealm123';
 
                 return (
                   <div
@@ -742,6 +830,44 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                           {acc.email}
                         </p>
 
+                        {/* Fila de Contraseña con Revelar y Copiar */}
+                        <div className="flex items-center gap-1.5 mt-1 text-[11px] bg-slate-950/80 px-2.5 py-1 rounded-lg border border-slate-800/90 w-fit flex-wrap">
+                          <Lock className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                          <span className="text-slate-400">Clave:</span>
+                          <span className="font-mono text-slate-200 select-all font-semibold">
+                            {isRevealed ? displayPassword : '••••••••'}
+                          </span>
+                          <button
+                            onClick={() => toggleRevealPassword(acc.uid)}
+                            className="p-0.5 text-slate-400 hover:text-white transition"
+                            title={isRevealed ? "Ocultar contraseña" : "Ver contraseña"}
+                          >
+                            {isRevealed ? (
+                              <EyeOff className="w-3 h-3 text-indigo-400" />
+                            ) : (
+                              <Eye className="w-3 h-3 text-slate-400" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleCopyPassword(displayPassword, acc.uid)}
+                            className="p-0.5 text-slate-400 hover:text-white transition"
+                            title="Copiar contraseña"
+                          >
+                            {copiedPasswordUid === acc.uid ? (
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3 h-3 text-slate-400" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleOpenPasswordModal(acc)}
+                            className="ml-1 text-[10px] text-amber-400 hover:underline font-bold"
+                            title="Cambiar o restablecer contraseña"
+                          >
+                            (Cambiar)
+                          </button>
+                        </div>
+
                         <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1 flex-wrap font-mono">
                           <span className="flex items-center gap-1">
                             UID: <span className="text-slate-400">{acc.uid.slice(0, 14)}...</span>
@@ -784,11 +910,20 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         </span>
                       </button>
 
+                      {/* Botón Gestionar Contraseña */}
+                      <button
+                        onClick={() => handleOpenPasswordModal(acc)}
+                        className="p-2 text-slate-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-xl border border-transparent hover:border-amber-500/20 transition"
+                        title="Cambiar o restablecer contraseña"
+                      >
+                        <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                      </button>
+
                       {/* Botón Editar Cuenta */}
                       <button
                         onClick={() => handleStartEdit(acc)}
                         className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl border border-transparent hover:border-slate-700 transition"
-                        title="Editar nombre y correo"
+                        title="Editar nombre, correo o contraseña"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
@@ -829,8 +964,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             <span className={`w-2 h-2 rounded-full ${isSupabaseOnline ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse`} />
             <span>
               {isSupabaseOnline
-                ? 'Conectado a Supabase Cloud Database'
-                : 'Modo Local (Configura Supabase para ver cuentas online)'}
+                ? 'Conectado a Supabase Cloud Database • Control de Contraseñas Activo'
+                : 'Modo Local • Control de Contraseñas Local'}
             </span>
           </div>
           <button
@@ -841,6 +976,103 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* MODAL: CAMBIO / GESTIÓN DE CONTRASEÑA */}
+      {passwordModalUser && (
+        <div className="fixed inset-0 z-[75] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in zoom-in-95 duration-200">
+          <div className="bg-[#0b0f20] border border-amber-500/40 rounded-2xl max-w-md w-full p-5 shadow-2xl flex flex-col space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    Gestionar Contraseña
+                  </h3>
+                  <p className="text-xs text-slate-400 truncate max-w-[240px]">
+                    {passwordModalUser.displayName || passwordModalUser.email}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPasswordModalUser(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {passwordToast && (
+              <div className="p-3 bg-slate-900 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 font-medium">
+                {passwordToast}
+              </div>
+            )}
+
+            <form onSubmit={handleSavePassword} className="space-y-4">
+              <div>
+                <span className="text-[11px] text-slate-400 block mb-1">Contraseña Actual Registrada:</span>
+                <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs font-mono text-slate-200">
+                  <span>{passwordModalUser.password || 'inkrealm123'}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyPassword(passwordModalUser.password || 'inkrealm123', 'current')}
+                    className="text-slate-400 hover:text-white text-[11px] flex items-center gap-1 font-sans"
+                  >
+                    <Copy className="w-3 h-3" /> Copiar
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Nueva Contraseña
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setNewPasswordInput(generateSecurePassword())}
+                    className="text-[11px] text-amber-400 hover:underline font-bold"
+                  >
+                    🎲 Generar Aleatoria
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  required
+                  placeholder="Escribe la nueva contraseña..."
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono font-semibold"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-[11px] text-slate-400 space-y-1">
+                <span className="font-bold text-slate-300 block">Sincronización:</span>
+                <p>
+                  Esta contraseña se actualizará de inmediato en la tabla <strong>user_accounts</strong> de Supabase y en el almacenamiento local.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setPasswordModalUser(null)}
+                  className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-xs text-slate-400 hover:text-white font-semibold rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white text-xs font-bold rounded-xl shadow transition"
+                >
+                  Guardar en Supabase
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL SECUNDARIO: CONFIGURACIÓN DE SUPABASE */}
       {isSupabaseModalOpen && (
@@ -856,7 +1088,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     Conectar Base de Datos Supabase
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Sincroniza todas las cuentas creadas en la nube para verlas online desde cualquier lugar
+                    Sincroniza todas las cuentas y contraseñas creadas en la nube para verlas online desde cualquier lugar
                   </p>
                 </div>
               </div>
@@ -1105,6 +1337,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   <option value="admin">👑 Administrador</option>
                   <option value="guest">👻 Invitado</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Contraseña</label>
+                <input
+                  type="text"
+                  value={editForm.password}
+                  onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                />
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800 mt-4">

@@ -74,6 +74,7 @@ import {
   fetchAccountsFromSupabase,
   upsertAccountToSupabase,
   updateAccountInSupabase,
+  updatePasswordInSupabase,
   deleteAccountFromSupabase,
   syncUserMangasToSupabase,
   SUPABASE_SETUP_SQL
@@ -242,6 +243,7 @@ const INITIAL_DEMO_ACCOUNTS = [
     email: 'admin@inkrealm.com',
     displayName: 'Administrador Maestro',
     role: 'admin',
+    password: 'admin123',
     createdAt: new Date(Date.now() - 3600000 * 24 * 30).toISOString(),
     lastLogin: new Date().toISOString(),
     avatarGradient: 'from-amber-500 via-rose-500 to-red-600',
@@ -252,6 +254,7 @@ const INITIAL_DEMO_ACCOUNTS = [
     email: 'otaku.reader@gmail.com',
     displayName: 'Ken Kaneki',
     role: 'user',
+    password: 'kaneki2026',
     createdAt: new Date(Date.now() - 3600000 * 24 * 14).toISOString(),
     lastLogin: new Date(Date.now() - 3600000 * 18).toISOString(),
     avatarGradient: 'from-violet-500 to-indigo-600',
@@ -262,6 +265,7 @@ const INITIAL_DEMO_ACCOUNTS = [
     email: 'sung.jinwoo@shadows.kr',
     displayName: 'Sung Jin-Woo',
     role: 'user',
+    password: 'jinwoo2026',
     createdAt: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
     lastLogin: new Date(Date.now() - 3600000 * 5).toISOString(),
     avatarGradient: 'from-cyan-500 to-blue-600',
@@ -272,6 +276,7 @@ const INITIAL_DEMO_ACCOUNTS = [
     email: 'invitado@inkrealm.local',
     displayName: 'Lector Invitado',
     role: 'guest',
+    password: 'invitado123',
     createdAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
     lastLogin: new Date().toISOString(),
     avatarGradient: 'from-slate-600 to-zinc-700',
@@ -586,6 +591,7 @@ export default function App() {
         uid: 'user_' + Math.abs(authForm.email.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)),
         displayName: authForm.displayName.trim() || authForm.email.split('@')[0],
         email: authForm.email,
+        password: authForm.password || 'inkrealm123',
         role: assignedRole,
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
@@ -614,6 +620,7 @@ export default function App() {
         uid: userCredential.user.uid,
         email: userCredential.user.email || authForm.email,
         displayName: authForm.displayName.trim() || authForm.email.split('@')[0],
+        password: authForm.password,
         role: (authForm.email.toLowerCase().includes('admin') ? 'admin' : 'user') as 'admin' | 'user',
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
@@ -646,11 +653,20 @@ export default function App() {
     if (firebaseConfig.apiKey === 'demo-api-key') {
       const allAccounts = getStoredAccountsWithStats();
       const existing = allAccounts.find((a) => a.email.toLowerCase() === authForm.email.toLowerCase());
+      
+      // Si la cuenta existe y tiene contraseña guardada, validarla
+      if (existing && existing.password && authForm.password && existing.password !== authForm.password) {
+        setAuthError('Contraseña incorrecta. Por favor verifica tus credenciales.');
+        setAuthSubmitting(false);
+        return;
+      }
+
       const role = existing ? existing.role : (authForm.email.toLowerCase().includes('admin') ? 'admin' : 'user');
       const localUser = {
         uid: existing ? existing.uid : ('user_' + Math.abs(authForm.email.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0))),
         displayName: existing?.displayName || authForm.displayName.trim() || authForm.email.split('@')[0],
         email: authForm.email,
+        password: existing?.password || authForm.password || 'inkrealm123',
         role: role,
         createdAt: existing?.createdAt || new Date().toISOString(),
         lastLogin: new Date().toISOString(),
@@ -825,11 +841,13 @@ export default function App() {
   const handleCreateAccountFromAdmin = ({
     displayName,
     email,
+    password,
     role,
     seedMangas
   }: {
     displayName: string;
     email: string;
+    password?: string;
     role: 'admin' | 'user';
     seedMangas?: boolean;
   }) => {
@@ -838,6 +856,7 @@ export default function App() {
       uid: newUid,
       email: email,
       displayName: displayName,
+      password: password || 'inkrealm123',
       role: role,
       createdAt: new Date().toISOString(),
       lastLogin: 'Nunca',
@@ -863,6 +882,7 @@ export default function App() {
     uid: string;
     displayName: string;
     email: string;
+    password?: string;
     role: 'admin' | 'user' | 'guest';
   }) => {
     const accounts = getStoredAccountsWithStats();
@@ -880,6 +900,33 @@ export default function App() {
 
     refreshAccountsList();
     showAdminToast(`Cuenta de "${updatedData.displayName}" actualizada`);
+  };
+
+  // Modificar o restablecer contraseña desde el panel de administración
+  const handleUpdatePassword = async (uid: string, newPassword: string): Promise<boolean> => {
+    try {
+      const accounts = getStoredAccountsWithStats();
+      const next = accounts.map((a: any) => (a.uid === uid ? { ...a, password: newPassword } : a));
+      localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(next));
+
+      if (user && user.uid === uid) {
+        const updatedUser = { ...user, password: newPassword };
+        setUser(updatedUser);
+        localStorage.setItem('inkrealm_user', JSON.stringify(updatedUser));
+      }
+
+      if (isSupabaseConfigured()) {
+        await updatePasswordInSupabase(uid, newPassword);
+      }
+
+      await refreshAccountsList();
+      showAdminToast('Contraseña actualizada correctamente');
+      return true;
+    } catch (err) {
+      console.error('Error al actualizar contraseña:', err);
+      showAdminToast('Error al actualizar contraseña');
+      return false;
+    }
   };
 
   // Guardar configuración de Supabase desde el panel
@@ -951,6 +998,7 @@ export default function App() {
           onDeleteAccount={handleDeleteAccount}
           onCreateAccount={handleCreateAccountFromAdmin}
           onUpdateAccount={handleUpdateAccount}
+          onUpdatePassword={handleUpdatePassword}
           onExportJson={handleExportAccountsJson}
           isCloudMode={firebaseConfig.apiKey !== 'demo-api-key'}
           isSupabaseOnline={isSupabaseConfigured()}

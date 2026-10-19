@@ -30,4 +30,5 @@ export interface UserAccount {
   avatarGradient?: string;
   isAnonymous?: boolean;
   mangaCount?: number;
+  password?: string;
 }
