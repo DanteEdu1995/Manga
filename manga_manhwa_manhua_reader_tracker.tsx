@@ -977,6 +977,9 @@ export default function App() {
 
   // Renderizador unificado para el Panel de Administrador e Inspector
   const renderAdminModals = () => {
+    // Solo permitir acceso al panel si el usuario actual tiene rol de administrador
+    const isAdmin = user && user.role === 'admin';
+
     return (
       <>
         {/* Toast Notificación flotante */}
@@ -987,26 +990,28 @@ export default function App() {
           </div>
         )}
 
-        <AdminPanelModal
-          isOpen={isAdminModalOpen}
-          onClose={() => setIsAdminModalOpen(false)}
-          currentUser={user}
-          accounts={registeredAccounts}
-          onRefreshAccounts={refreshAccountsList}
-          onToggleRole={handleToggleRole}
-          onImpersonate={handleImpersonate}
-          onDeleteAccount={handleDeleteAccount}
-          onCreateAccount={handleCreateAccountFromAdmin}
-          onUpdateAccount={handleUpdateAccount}
-          onUpdatePassword={handleUpdatePassword}
-          onExportJson={handleExportAccountsJson}
-          isCloudMode={firebaseConfig.apiKey !== 'demo-api-key'}
-          isSupabaseOnline={isSupabaseConfigured()}
-          supabaseUrl={getSupabaseConfig().url}
-          onSaveSupabaseConfig={handleSaveSupabaseConfig}
-          onSyncAllToSupabase={handleSyncAllToSupabase}
-          supabaseSqlScript={SUPABASE_SETUP_SQL}
-        />
+        {isAdmin && (
+          <AdminPanelModal
+            isOpen={isAdminModalOpen}
+            onClose={() => setIsAdminModalOpen(false)}
+            currentUser={user}
+            accounts={registeredAccounts}
+            onRefreshAccounts={refreshAccountsList}
+            onToggleRole={handleToggleRole}
+            onImpersonate={handleImpersonate}
+            onDeleteAccount={handleDeleteAccount}
+            onCreateAccount={handleCreateAccountFromAdmin}
+            onUpdateAccount={handleUpdateAccount}
+            onUpdatePassword={handleUpdatePassword}
+            onExportJson={handleExportAccountsJson}
+            isCloudMode={firebaseConfig.apiKey !== 'demo-api-key'}
+            isSupabaseOnline={isSupabaseConfigured()}
+            supabaseUrl={getSupabaseConfig().url}
+            onSaveSupabaseConfig={handleSaveSupabaseConfig}
+            onSyncAllToSupabase={handleSyncAllToSupabase}
+            supabaseSqlScript={SUPABASE_SETUP_SQL}
+          />
+        )}
       </>
     );
   };
@@ -1472,59 +1477,44 @@ export default function App() {
               </button>
             </form>
 
-            <div className="relative my-6 text-center">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-800" />
-              </div>
-              <span className="relative bg-slate-900 px-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                O prueba sin registro
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-2 mt-2">
-              <button
-                type="button"
-                onClick={handleGuestLogin}
-                disabled={authSubmitting}
-                className="w-full py-2.5 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2"
-              >
-                <UserCheck className="w-4 h-4 text-indigo-400" />
-                <span>Entrar como Invitado / Demo</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleAdminLoginDemo}
-                disabled={authSubmitting}
-                className="w-full py-2.5 bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-indigo-500/10 hover:from-amber-500/20 hover:to-indigo-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2"
-              >
-                <Crown className="w-4 h-4 text-amber-400" />
-                <span>Acceder como Administrador Maestro (Demo)</span>
-              </button>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-800/80 text-center">
-              <button
-                type="button"
-                onClick={() => {
-                  refreshAccountsList();
-                  setIsAdminModalOpen(true);
-                }}
-                className="w-full py-2.5 bg-gradient-to-r from-amber-600/20 via-rose-600/20 to-purple-600/20 hover:from-amber-600/30 hover:to-purple-600/30 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-amber-500/5 active:scale-95"
-              >
-                <ShieldCheck className="w-4 h-4 text-amber-400 animate-pulse" />
-                <span>Abrir Panel de Administrador (Ver Cuentas Creadas: {registeredAccounts.length})</span>
-              </button>
+            {/* Alternador rápido entre Iniciar Sesión y Registrarse */}
+            <div className="mt-6 pt-4 border-t border-slate-800/80 text-center">
+              {authModalTab === 'login' ? (
+                <p className="text-xs text-slate-400">
+                  ¿No tienes una cuenta aún?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthModalTab('register');
+                      setAuthError('');
+                    }}
+                    className="text-rose-400 hover:text-rose-300 font-semibold underline underline-offset-2 transition"
+                  >
+                    Regístrate aquí
+                  </button>
+                </p>
+              ) : (
+                <p className="text-xs text-slate-400">
+                  ¿Ya tienes cuenta registrada?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthModalTab('login');
+                      setAuthError('');
+                    }}
+                    className="text-rose-400 hover:text-rose-300 font-semibold underline underline-offset-2 transition"
+                  >
+                    Inicia sesión aquí
+                  </button>
+                </p>
+              )}
             </div>
           </div>
 
           <p className="text-center text-[11px] text-slate-500 mt-6">
-            Sincronización en la nube en tiempo real • Búsqueda con AniList API
+            InkRealm Tracker • Sincronización en tiempo real • Catálogo AniList API
           </p>
         </div>
-
-        {/* Modales del Administrador accesibles directamente desde el login */}
-        {renderAdminModals()}
       </div>
     );
   }
@@ -1603,21 +1593,23 @@ export default function App() {
               </button>
             </div>
 
-            {/* Botón Administrador / Cuentas */}
-            <button
-              onClick={() => {
-                refreshAccountsList();
-                setIsAdminModalOpen(true);
-              }}
-              className="flex items-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-amber-500/15 via-purple-500/10 to-indigo-500/15 hover:from-amber-500/25 hover:to-indigo-500/25 text-amber-300 border border-amber-500/30 text-xs sm:text-sm font-semibold rounded-xl shadow-lg shadow-amber-500/5 transition duration-200 active:scale-95"
-              title="Panel de Administración y Cuentas Creadas"
-            >
-              <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span className="hidden sm:inline">Panel Admin</span>
-              <span className="bg-amber-400/20 text-amber-300 text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-0.5">
-                {registeredAccounts.length}
-              </span>
-            </button>
+            {/* Botón Administrador / Cuentas - Solo visible para cuentas con rol Admin */}
+            {user.role === 'admin' && (
+              <button
+                onClick={() => {
+                  refreshAccountsList();
+                  setIsAdminModalOpen(true);
+                }}
+                className="flex items-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-amber-500/20 via-rose-500/15 to-purple-500/20 hover:from-amber-500/30 hover:to-purple-500/30 text-amber-300 border border-amber-500/40 text-xs sm:text-sm font-semibold rounded-xl shadow-lg shadow-amber-500/10 transition duration-200 active:scale-95 animate-in fade-in"
+                title="Panel de Administración y Cuentas Creadas"
+              >
+                <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
+                <span className="hidden sm:inline">Panel Admin</span>
+                <span className="bg-amber-400/20 text-amber-300 text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-0.5">
+                  {registeredAccounts.length}
+                </span>
+              </button>
+            )}
 
             {/* Botón Añadir */}
             <button
