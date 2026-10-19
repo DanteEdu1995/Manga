@@ -67,6 +67,17 @@ import {
 
 import { AdminPanelModal } from './src/components/AdminPanelModal';
 import { UserAccount } from './src/types';
+import {
+  isSupabaseConfigured,
+  getSupabaseConfig,
+  saveSupabaseConfig,
+  fetchAccountsFromSupabase,
+  upsertAccountToSupabase,
+  updateAccountInSupabase,
+  deleteAccountFromSupabase,
+  syncUserMangasToSupabase,
+  SUPABASE_SETUP_SQL
+} from './src/lib/supabase';
 
 declare const __firebase_config: string | undefined;
 declare const __app_id: string | undefined;
@@ -335,6 +346,11 @@ const saveAccountToDirectory = (accountData) => {
       ];
     }
     localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(next));
+    if (isSupabaseConfigured()) {
+      upsertAccountToSupabase(accountData).catch((err) => {
+        console.warn('Error sincronizando cuenta en Supabase:', err);
+      });
+    }
     return next;
   } catch (e) {
     console.error('Error al guardar en directorio de cuentas:', e);
@@ -410,9 +426,26 @@ export default function App() {
     setTimeout(() => setAdminToast(''), 3500);
   };
 
-  const refreshAccountsList = () => {
+  const refreshAccountsList = async () => {
     const list = getStoredAccountsWithStats();
     setRegisteredAccounts(list as any);
+
+    if (isSupabaseConfigured()) {
+      try {
+        const cloudAccounts = await fetchAccountsFromSupabase();
+        if (cloudAccounts && cloudAccounts.length > 0) {
+          const map = new Map<string, UserAccount>();
+          list.forEach((a) => map.set(a.uid, a));
+          cloudAccounts.forEach((ca) => map.set(ca.uid, { ...map.get(ca.uid), ...ca }));
+          const merged = Array.from(map.values());
+          setRegisteredAccounts(merged);
+          localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(merged));
+          return merged;
+        }
+      } catch (err) {
+        console.warn('Error sincronizando cuentas desde Supabase:', err);
+      }
+    }
     return list;
   };
 
@@ -711,14 +744,18 @@ export default function App() {
   };
 
   // Alternar Rol (Admin <-> Lector)
-  const handleToggleRole = (targetUid) => {
+  const handleToggleRole = (targetUid: string) => {
     const list = getStoredAccountsWithStats();
-    const target = list.find((a) => a.uid === targetUid);
+    const target = list.find((a: any) => a.uid === targetUid);
     if (!target) return;
     const newRole = target.role === 'admin' ? 'user' : 'admin';
-    const updated = list.map((a) => (a.uid === targetUid ? { ...a, role: newRole } : a));
+    const updated = list.map((a: any) => (a.uid === targetUid ? { ...a, role: newRole } : a));
     localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(updated));
-    setRegisteredAccounts(getStoredAccountsWithStats());
+    setRegisteredAccounts(getStoredAccountsWithStats() as any);
+
+    if (isSupabaseConfigured()) {
+      updateAccountInSupabase(targetUid, { role: newRole }).catch(console.error);
+    }
 
     // Si es el usuario actual, actualizar estado
     if (user && user.uid === targetUid) {
@@ -776,6 +813,11 @@ export default function App() {
     localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(list));
     localStorage.removeItem(`inkrealm_mangas_${targetUid}`);
     setRegisteredAccounts(getStoredAccountsWithStats() as any);
+
+    if (isSupabaseConfigured()) {
+      deleteAccountFromSupabase(targetUid).catch(console.error);
+    }
+
     showAdminToast('Cuenta eliminada con éxito.');
   };
 
@@ -831,8 +873,45 @@ export default function App() {
       setUser(updatedUser);
       localStorage.setItem('inkrealm_user', JSON.stringify(updatedUser));
     }
+
+    if (isSupabaseConfigured()) {
+      updateAccountInSupabase(updatedData.uid, updatedData).catch(console.error);
+    }
+
     refreshAccountsList();
     showAdminToast(`Cuenta de "${updatedData.displayName}" actualizada`);
+  };
+
+  // Guardar configuración de Supabase desde el panel
+  const handleSaveSupabaseConfig = (url: string, anonKey: string) => {
+    const ok = saveSupabaseConfig(url, anonKey);
+    if (ok) {
+      showAdminToast('¡Supabase conectado exitosamente!');
+      refreshAccountsList();
+    } else {
+      showAdminToast('Configuración de Supabase removida o inválida.');
+    }
+    return ok;
+  };
+
+  // Sincronizar todas las cuentas y sus bibliotecas a Supabase
+  const handleSyncAllToSupabase = async () => {
+    const list = getStoredAccountsWithStats();
+    for (const acc of list) {
+      await upsertAccountToSupabase(acc);
+      try {
+        const raw = localStorage.getItem(`inkrealm_mangas_${acc.uid}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            await syncUserMangasToSupabase(acc.uid, parsed);
+          }
+        }
+      } catch (err) {
+        console.warn('Error subiendo mangas:', err);
+      }
+    }
+    showAdminToast('¡Todas las cuentas y mangas fueron sincronizados con Supabase!');
   };
 
   // Exportar cuentas a JSON
@@ -874,6 +953,11 @@ export default function App() {
           onUpdateAccount={handleUpdateAccount}
           onExportJson={handleExportAccountsJson}
           isCloudMode={firebaseConfig.apiKey !== 'demo-api-key'}
+          isSupabaseOnline={isSupabaseConfigured()}
+          supabaseUrl={getSupabaseConfig().url}
+          onSaveSupabaseConfig={handleSaveSupabaseConfig}
+          onSyncAllToSupabase={handleSyncAllToSupabase}
+          supabaseSqlScript={SUPABASE_SETUP_SQL}
         />
       </>
     );

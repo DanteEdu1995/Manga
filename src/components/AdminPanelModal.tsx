@@ -22,7 +22,14 @@ import {
   Sparkles,
   Calendar,
   Activity,
-  AlertCircle
+  AlertCircle,
+  Database,
+  Globe,
+  Settings,
+  UploadCloud,
+  CheckCircle2,
+  ExternalLink,
+  Code
 } from 'lucide-react';
 import { UserAccount, MangaItem, MangaFormat } from '../types';
 
@@ -49,6 +56,11 @@ interface AdminPanelModalProps {
   }) => void;
   onExportJson: () => void;
   isCloudMode: boolean;
+  isSupabaseOnline?: boolean;
+  supabaseUrl?: string;
+  onSaveSupabaseConfig?: (url: string, anonKey: string) => boolean;
+  onSyncAllToSupabase?: () => Promise<void>;
+  supabaseSqlScript?: string;
 }
 
 const FORMAT_CONFIG: Record<
@@ -92,7 +104,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onCreateAccount,
   onUpdateAccount,
   onExportJson,
-  isCloudMode
+  isCloudMode,
+  isSupabaseOnline = false,
+  supabaseUrl = '',
+  onSaveSupabaseConfig,
+  onSyncAllToSupabase,
+  supabaseSqlScript = ''
 }) => {
   // Estados de búsqueda, filtros y ordenamiento
   const [search, setSearch] = useState('');
@@ -120,6 +137,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     role: 'user' as 'admin' | 'user' | 'guest'
   });
 
+  // Modal de configuración de Supabase
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
+  const [supabaseForm, setSupabaseForm] = useState({
+    url: supabaseUrl || '',
+    anonKey: ''
+  });
+  const [supabaseSyncing, setSupabaseSyncing] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [supabaseMessage, setSupabaseMessage] = useState('');
+
   // Copiado al portapapeles
   const [copiedUid, setCopiedUid] = useState<string | null>(null);
 
@@ -128,6 +155,49 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     navigator.clipboard?.writeText(uid);
     setCopiedUid(uid);
     setTimeout(() => setCopiedUid(null), 2000);
+  };
+
+  // Copiar SQL de Supabase
+  const handleCopySql = () => {
+    if (supabaseSqlScript) {
+      navigator.clipboard?.writeText(supabaseSqlScript);
+      setCopiedSql(true);
+      setTimeout(() => setCopiedSql(false), 2500);
+    }
+  };
+
+  // Guardar configuración de Supabase
+  const handleSaveSupabase = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onSaveSupabaseConfig) {
+      const ok = onSaveSupabaseConfig(supabaseForm.url, supabaseForm.anonKey);
+      if (ok) {
+        setSupabaseMessage('✅ ¡Conexión con Supabase guardada exitosamente!');
+        onRefreshAccounts();
+        setTimeout(() => {
+          setIsSupabaseModalOpen(false);
+          setSupabaseMessage('');
+        }, 1500);
+      } else {
+        setSupabaseMessage('❌ Verifica que la URL y la Anon Key de Supabase sean correctas.');
+      }
+    }
+  };
+
+  // Sincronizar todas las cuentas a Supabase
+  const handleSyncToSupabase = async () => {
+    if (!onSyncAllToSupabase) return;
+    setSupabaseSyncing(true);
+    setSupabaseMessage('Subiendo cuentas y datos a Supabase...');
+    try {
+      await onSyncAllToSupabase();
+      setSupabaseMessage('✅ Todas las cuentas fueron sincronizadas con Supabase.');
+      onRefreshAccounts();
+    } catch {
+      setSupabaseMessage('❌ Error sincronizando cuentas con Supabase.');
+    } finally {
+      setSupabaseSyncing(false);
+    }
   };
 
   // Abrir inspector de biblioteca
@@ -280,22 +350,53 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               <Crown className="w-6 h-6 text-white" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg font-black tracking-wide text-white">
                   Panel de Administrador de Cuentas
                 </h2>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-amber-400" />
-                  {isCloudMode ? 'Cloud Firestore' : 'Almacenamiento Local (Demo)'}
-                </span>
+                
+                {/* Badge de conexión a Supabase */}
+                {isSupabaseOnline ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Supabase Online (Conectado)
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setIsSupabaseModalOpen(true)}
+                    className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 flex items-center gap-1 transition cursor-pointer"
+                    title="Conectar a base de datos Supabase"
+                  >
+                    <Database className="w-3 h-3 text-amber-400" />
+                    <span>Conectar Supabase</span>
+                  </button>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Audita y gestiona todas las cuentas creadas, roles, bibliotecas privadas e inicio simulado
+                {isSupabaseOnline
+                  ? 'Sincronizado en tiempo real con Supabase Cloud Database'
+                  : 'Audita y gestiona cuentas creadas en el sistema'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Botón Configurar Supabase */}
+            <button
+              onClick={() => setIsSupabaseModalOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 border text-xs font-semibold rounded-xl transition ${
+                isSupabaseOnline
+                  ? 'bg-emerald-950/40 hover:bg-emerald-900/40 text-emerald-300 border-emerald-500/30'
+                  : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border-amber-500/30'
+              }`}
+              title="Configurar conexión con Supabase"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">
+                {isSupabaseOnline ? 'Supabase Activo' : 'Configurar Supabase'}
+              </span>
+            </button>
+
             <button
               onClick={onExportJson}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-semibold rounded-xl transition"
@@ -304,13 +405,15 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               <Download className="w-3.5 h-3.5 text-indigo-400" />
               <span className="hidden sm:inline">Exportar JSON</span>
             </button>
+
             <button
               onClick={onRefreshAccounts}
               className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 rounded-xl transition"
-              title="Recargar cuentas"
+              title="Recargar cuentas en tiempo real"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
+
             <button
               onClick={onClose}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
@@ -471,7 +574,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             <div className="bg-[#080c18] border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-xl animate-in fade-in duration-200">
               <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                  <UserPlus className="w-4 h-4" /> Registrar Nueva Cuenta en InkRealm
+                  <UserPlus className="w-4 h-4" /> Registrar Nueva Cuenta {isSupabaseOnline && '(Se guardará en Supabase)'}
                 </h4>
                 <span className="text-[10px] text-slate-500">Se registrará y sincronizará de inmediato</span>
               </div>
@@ -607,6 +710,13 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                             </span>
                           )}
 
+                          {isSupabaseOnline && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                              Online
+                            </span>
+                          )}
+
                           {/* Botón de Rol Interactivo */}
                           <button
                             onClick={() => onToggleRole(acc.uid)}
@@ -716,8 +826,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         {/* PIE DEL MODAL */}
         <div className="p-4 border-t border-slate-800 bg-[#080b16] flex flex-wrap items-center justify-between text-xs text-slate-500 gap-2">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Auditoría de Cuentas Activa • InkRealm Admin Suite</span>
+            <span className={`w-2 h-2 rounded-full ${isSupabaseOnline ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse`} />
+            <span>
+              {isSupabaseOnline
+                ? 'Conectado a Supabase Cloud Database'
+                : 'Modo Local (Configura Supabase para ver cuentas online)'}
+            </span>
           </div>
           <button
             onClick={onClose}
@@ -727,6 +841,118 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* MODAL SECUNDARIO: CONFIGURACIÓN DE SUPABASE */}
+      {isSupabaseModalOpen && (
+        <div className="fixed inset-0 z-[75] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in zoom-in-95 duration-200">
+          <div className="bg-[#0b0f20] border border-emerald-500/40 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl flex flex-col space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    Conectar Base de Datos Supabase
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Sincroniza todas las cuentas creadas en la nube para verlas online desde cualquier lugar
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsSupabaseModalOpen(false);
+                  setSupabaseMessage('');
+                }}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {supabaseMessage && (
+              <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 font-medium">
+                {supabaseMessage}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveSupabase} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Project URL de Supabase
+                </label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://xyzabcdefg.supabase.co"
+                  value={supabaseForm.url}
+                  onChange={(e) => setSupabaseForm({ ...supabaseForm, url: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Anon / Public API Key
+                </label>
+                <input
+                  type="password"
+                  required
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  value={supabaseForm.anonKey}
+                  onChange={(e) => setSupabaseForm({ ...supabaseForm, anonKey: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Acciones principales */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleCopySql}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-indigo-300 border border-indigo-500/30 text-xs font-semibold rounded-xl transition"
+                >
+                  {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Code className="w-3.5 h-3.5" />}
+                  <span>{copiedSql ? '¡SQL Copiado!' : 'Copiar Script SQL para Supabase'}</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {isSupabaseOnline && (
+                    <button
+                      type="button"
+                      onClick={handleSyncToSupabase}
+                      disabled={supabaseSyncing}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold rounded-xl transition disabled:opacity-50"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5" />
+                      <span>{supabaseSyncing ? 'Sincronizando...' : 'Subir Cuentas Locales a Supabase'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow transition"
+                  >
+                    Guardar y Conectar
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {/* Guía Rápida */}
+            <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl text-xs text-slate-400 space-y-2">
+              <span className="font-bold text-slate-300 block">¿Cómo obtener estos datos en 2 minutos?</span>
+              <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-400">
+                <li>Crea un proyecto gratis en <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-emerald-400 underline">supabase.com</a>.</li>
+                <li>En tu proyecto, ve a <strong>SQL Editor</strong>, haz clic en <em>"Copiar Script SQL"</em> arriba, pégalo y haz clic en <strong>Run</strong>.</li>
+                <li>Ve a <strong>Project Settings ➜ API</strong> y copia la <strong>Project URL</strong> y la <strong>anon public key</strong>.</li>
+                <li>Pégalas en los campos de arriba y presiona <strong>Guardar y Conectar</strong>.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL SECUNDARIO: INSPECTOR DE BIBLIOTECA */}
       {inspectingUser && (
