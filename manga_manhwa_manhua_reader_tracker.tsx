@@ -545,12 +545,19 @@ export default function App() {
         try {
           setItems(JSON.parse(saved));
         } catch (e) {
-          setItems(INITIAL_DEMO_ITEMS);
-          localStorage.setItem(storageKey, JSON.stringify(INITIAL_DEMO_ITEMS));
+          setItems([]);
+          localStorage.setItem(storageKey, JSON.stringify([]));
         }
       } else {
-        setItems(INITIAL_DEMO_ITEMS);
-        localStorage.setItem(storageKey, JSON.stringify(INITIAL_DEMO_ITEMS));
+        // Solo las cuentas de demostración iniciales traen mangas precargados
+        if (user.uid === 'guest_demo_user' || user.uid === 'admin_master_001') {
+          setItems(INITIAL_DEMO_ITEMS);
+          localStorage.setItem(storageKey, JSON.stringify(INITIAL_DEMO_ITEMS));
+        } else {
+          // Todas las cuentas creadas por usuarios inician con la lista vacía
+          setItems([]);
+          localStorage.setItem(storageKey, JSON.stringify([]));
+        }
       }
       setFirestoreLoading(false);
       return;
@@ -568,16 +575,8 @@ export default function App() {
           loaded.push({ id: docSnap.id, ...docSnap.data() });
         });
 
-        // Si la cuenta está recién creada y vacía, precargamos ejemplos
-        if (loaded.length === 0 && !sessionStorage.getItem(`seeded_${user.uid}`)) {
-          sessionStorage.setItem(`seeded_${user.uid}`, 'true');
-          INITIAL_DEMO_ITEMS.forEach(async (demoItem) => {
-            const itemRef = doc(db, 'artifacts', appId, 'users', user.uid, 'mangas', demoItem.id);
-            await setDoc(itemRef, demoItem);
-          });
-        } else {
-          setItems(loaded);
-        }
+        // La lista debe reflejar fielmente las obras del usuario (vacía si recién se crea la cuenta)
+        setItems(loaded);
         setFirestoreLoading(false);
       },
       (error) => {
@@ -610,6 +609,10 @@ export default function App() {
         lastLogin: new Date().toISOString(),
         isAnonymous: false
       };
+      // Inicializar explícitamente lista vacía para la nueva cuenta
+      const storageKey = `mangakura_mangas_${localUser.uid}`;
+      localStorage.setItem(storageKey, JSON.stringify([]));
+      setItems([]);
       localStorage.setItem('mangakura_user', JSON.stringify(localUser));
       saveAccountToDirectory(localUser);
       setUser(localUser);
@@ -629,6 +632,8 @@ export default function App() {
           displayName: authForm.displayName.trim()
         });
       }
+      // Inicializar explícitamente lista vacía para la cuenta
+      setItems([]);
       const newAcc = {
         uid: userCredential.user.uid,
         email: userCredential.user.email || authForm.email,
@@ -637,7 +642,8 @@ export default function App() {
         role: (authForm.email.toLowerCase().includes('admin') ? 'admin' : 'user') as 'admin' | 'user',
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
-        isAnonymous: false
+        isAnonymous: false,
+        mangaCount: 0
       };
       saveAccountToDirectory(newAcc);
       refreshAccountsList();
@@ -2045,16 +2051,24 @@ export default function App() {
         ) : filteredItems.length === 0 ? (
           <div className="text-center py-16 bg-slate-900/30 border border-slate-800/60 rounded-3xl p-8">
             <Flame className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-            <h3 className="text-lg font-bold text-slate-300">No hay lecturas registradas</h3>
+            <h3 className="text-lg font-bold text-slate-300">Tu biblioteca está vacía</h3>
             <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-              Busca en el catálogo oficial de AniList o añade una obra de forma manual.
+              Empieza añadiendo tu primer Manga, Manhwa o Manhua buscando en AniList o explorando los más puntuados.
             </p>
-            <button
-              onClick={() => handleOpenAddModal()}
-              className="mt-4 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl inline-flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" /> Buscar en AniList
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-3 mt-4">
+              <button
+                onClick={() => handleOpenAddModal()}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl inline-flex items-center gap-2 shadow-md shadow-rose-600/20 transition active:scale-95"
+              >
+                <Plus className="w-4 h-4" /> Buscar en AniList
+              </button>
+              <button
+                onClick={() => setActiveMainTab('portada')}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl inline-flex items-center gap-2 border border-slate-700 transition active:scale-95"
+              >
+                <Trophy className="w-4 h-4 text-amber-400" /> Ver Top Puntuados
+              </button>
+            </div>
           </div>
         ) : viewMode === 'grid' ? (
           /* Vista Cuadrícula */
