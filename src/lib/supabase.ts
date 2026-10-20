@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { UserAccount, MangaItem } from '../types';
 
-// Leer configuración desde variables de entorno de Vite o desde LocalStorage
+// Leer configuración desde variables de entorno de Vite, LocalStorage o configuración por defecto
 const getStoredCredentials = () => {
   const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
   const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
@@ -18,7 +18,18 @@ const getStoredCredentials = () => {
     console.error('Error leyendo config local de Supabase:', e);
   }
 
-  return { url: envUrl.trim(), anonKey: envKey.trim() };
+  const cleanEnvUrl = envUrl.trim();
+  const cleanEnvKey = envKey.trim();
+
+  if (cleanEnvUrl && cleanEnvKey) {
+    return { url: cleanEnvUrl, anonKey: cleanEnvKey };
+  }
+
+  // Credenciales activas del proyecto de Supabase
+  return {
+    url: 'https://qinsxicauwnqchkthmik.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpbnN4aWNhdXducWNoa3RobWlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0MzQwMDAsImV4cCI6MjEwODAxMDAwMH0.4NHN34_rstKRuiVy7gd4iqsDELLiiwWM1vh6aBRO9eM'
+  };
 };
 
 let currentConfig = getStoredCredentials();
