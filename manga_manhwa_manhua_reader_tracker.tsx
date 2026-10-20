@@ -41,7 +41,8 @@ import {
   RefreshCw,
   Copy,
   ExternalLink,
-  Shield
+  Shield,
+  Trophy
 } from 'lucide-react';
 
 // Firebase imports
@@ -66,6 +67,7 @@ import {
 } from 'firebase/firestore';
 
 import { AdminPanelModal } from './src/components/AdminPanelModal';
+import { PortadaLanding, TOP_RATED_MANGAS, TopManga } from './src/components/PortadaLanding';
 import { UserAccount } from './src/types';
 import {
   isSupabaseConfigured,
@@ -432,6 +434,10 @@ export default function App() {
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [adminToast, setAdminToast] = useState('');
   const [impersonatedOriginalUser, setImpersonatedOriginalUser] = useState<any>(null);
+
+  // Pestaña principal de navegación: 'library' | 'portada'
+  const [activeMainTab, setActiveMainTab] = useState<'library' | 'portada'>('library');
+  const [isVisitorAuthOpen, setIsVisitorAuthOpen] = useState(false);
 
   const showAdminToast = (msg: string) => {
     setAdminToast(msg);
@@ -1297,6 +1303,59 @@ export default function App() {
     handleStatusChange(id, 'completed');
   };
 
+  // Añadir directamente desde el Top Puntuados a la biblioteca del usuario
+  const handleAddFromTop = async (topItem: TopManga) => {
+    if (!user) {
+      setIsVisitorAuthOpen(true);
+      return;
+    }
+
+    const alreadyExists = items.some(
+      (i) => i.title.toLowerCase() === topItem.title.toLowerCase() || (i.anilistId && i.anilistId === topItem.anilistId)
+    );
+
+    if (alreadyExists) {
+      showAdminToast(`"${topItem.title}" ya está en tu biblioteca.`);
+      return;
+    }
+
+    const targetId = `manga_${Date.now()}`;
+    const docPayload = {
+      id: targetId,
+      title: topItem.title,
+      format: topItem.format,
+      status: 'plan_to_read',
+      cover: topItem.cover,
+      currentChap: 0,
+      totalChap: topItem.totalChap,
+      score: topItem.score,
+      genre: topItem.genre,
+      author: topItem.author,
+      notes: topItem.highlight || topItem.description,
+      anilistId: topItem.anilistId,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (firebaseConfig.apiKey === 'demo-api-key') {
+      const storageKey = `mangakura_mangas_${user.uid}`;
+      setItems((prev) => {
+        const next = [docPayload, ...prev];
+        localStorage.setItem(storageKey, JSON.stringify(next));
+        return next;
+      });
+      showAdminToast(`¡"${topItem.title}" añadido a tu biblioteca (Por Leer)!`);
+      return;
+    }
+
+    try {
+      const mangaDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'mangas', targetId);
+      await setDoc(mangaDocRef, docPayload, { merge: true });
+      showAdminToast(`¡"${topItem.title}" guardado en tu biblioteca!`);
+    } catch (err) {
+      console.error('Error guardando desde Top:', err);
+    }
+  };
+
   // Métricas
   const stats = useMemo(() => {
     const total = items.length;
@@ -1356,174 +1415,238 @@ export default function App() {
     );
   }
 
-  // Pantalla de Bienvenida / Autenticación (si no hay sesión activa)
+  // Pantalla de Bienvenida / Portada con Ranking Top (si no hay sesión activa)
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#070913] text-slate-100 flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans selection:bg-rose-500/30 selection:text-rose-200">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-gradient-to-tr from-rose-600/20 via-purple-600/20 to-indigo-600/10 blur-[120px] pointer-events-none rounded-full" />
-
-        <div className="w-full max-w-md relative z-10">
-          {/* Logo y Encabezado */}
-          <div className="text-center mb-8">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-rose-600 via-purple-600 to-indigo-600 flex items-center justify-center shadow-xl shadow-rose-600/30 ring-1 ring-white/20 mb-3">
-              <ScrollText className="w-7 h-7 text-white" />
+      <div className="min-h-screen bg-[#070913] text-slate-100 flex flex-col font-sans selection:bg-rose-500/30 selection:text-rose-200">
+        {/* Barra de Navegación Superior para Visitantes */}
+        <header className="border-b border-slate-800/80 bg-[#0c1020]/90 backdrop-blur-md sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between gap-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-600 via-purple-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-rose-600/25 ring-1 ring-white/20">
+                <ScrollText className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-100 to-slate-400">
+                    MANGA<span className="text-rose-500">KURA</span>
+                  </h1>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hidden sm:inline-flex items-center gap-1">
+                    <Globe className="w-2.5 h-2.5" /> AniList API
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium">Biblioteca de Manga • Manhwa • Manhua</p>
+              </div>
             </div>
-            <h1 className="text-3xl font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-100 to-slate-400">
-              MANGA<span className="text-rose-500">KURA</span>
-            </h1>
-            <p className="text-xs text-slate-400 mt-1">
-              Tu biblioteca personal de Manga 🇯🇵, Manhwa 🇰🇷 y Manhua 🇨🇳
-            </p>
-          </div>
 
-          {/* Tarjeta de Login / Registro */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 backdrop-blur-xl shadow-2xl">
-            {/* Pestañas Login vs Registro */}
-            <div className="grid grid-cols-2 bg-slate-950/80 p-1 rounded-xl border border-slate-800/80 mb-6 text-xs font-bold">
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <a
+                href="#ranking-top"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 hover:text-white font-semibold transition"
+              >
+                <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                <span>Top Puntuados</span>
+              </a>
+
               <button
-                type="button"
+                onClick={handleGuestLogin}
+                className="px-3 py-1.5 sm:px-3.5 sm:py-2 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 text-xs font-semibold rounded-xl transition active:scale-95 flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">Demo</span>
+                <span>Invitado</span>
+              </button>
+
+              <button
                 onClick={() => {
                   setAuthModalTab('login');
                   setAuthError('');
+                  setIsVisitorAuthOpen(true);
                 }}
-                className={`py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
-                  authModalTab === 'login'
-                    ? 'bg-rose-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
+                className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-rose-600/30 transition active:scale-95 flex items-center gap-1.5"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                Iniciar Sesión
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthModalTab('register');
-                  setAuthError('');
-                }}
-                className={`py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
-                  authModalTab === 'register'
-                    ? 'bg-rose-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                Registrarse
+                <span>Iniciar Sesión</span>
               </button>
             </div>
+          </div>
+        </header>
 
-            {authError && (
-              <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-                <span>{authError}</span>
+        {/* Portada Principal y Sección de Ranking con mayor puntuación */}
+        <main className="flex-1">
+          <PortadaLanding
+            user={user}
+            items={items}
+            onAddFromTop={handleAddFromTop}
+            onOpenAuth={(tab) => {
+              setAuthModalTab(tab);
+              setAuthError('');
+              setIsVisitorAuthOpen(true);
+            }}
+            onGuestLogin={handleGuestLogin}
+            onAdminLogin={handleAdminLoginDemo}
+          />
+        </main>
+
+        {/* Modal de Autenticación para Visitantes (Login / Registro / Demo) */}
+        {isVisitorAuthOpen && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative my-auto">
+              <button
+                onClick={() => setIsVisitorAuthOpen(false)}
+                className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Logo y Encabezado Modal */}
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-gradient-to-tr from-rose-600 via-purple-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-rose-600/30 ring-1 ring-white/20 mb-2">
+                  <ScrollText className="w-6 h-6 text-white" />
+                </div>
+                <h2 className="text-2xl font-black tracking-wider text-white">
+                  MANGA<span className="text-rose-500">KURA</span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Accede a tu biblioteca personal en la nube
+                </p>
               </div>
-            )}
 
-            <form onSubmit={authModalTab === 'login' ? handleLogin : handleRegister} className="space-y-4">
-              {authModalTab === 'register' && (
+              {/* Pestañas Login vs Registro */}
+              <div className="grid grid-cols-2 bg-slate-950/80 p-1 rounded-xl border border-slate-800/80 mb-5 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthModalTab('login');
+                    setAuthError('');
+                  }}
+                  className={`py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                    authModalTab === 'login'
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  Iniciar Sesión
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthModalTab('register');
+                    setAuthError('');
+                  }}
+                  className={`py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                    authModalTab === 'register'
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  Registrarse
+                </button>
+              </div>
+
+              {authError && (
+                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                  <span>{authError}</span>
+                </div>
+              )}
+
+              <form onSubmit={authModalTab === 'login' ? handleLogin : handleRegister} className="space-y-4">
+                {authModalTab === 'register' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                      Nombre o Nickname
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ej. OtakuReader"
+                        value={authForm.displayName}
+                        onChange={(e) => setAuthForm({ ...authForm, displayName: e.target.value })}
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Nombre o Nickname
+                    Correo Electrónico
                   </label>
                   <div className="relative">
-                    <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
-                      type="text"
+                      type="email"
                       required
-                      placeholder="Ej. OtakuReader"
-                      value={authForm.displayName}
-                      onChange={(e) => setAuthForm({ ...authForm, displayName: e.target.value })}
+                      placeholder="tucorreo@ejemplo.com"
+                      value={authForm.email}
+                      onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
                       className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
                     />
                   </div>
                 </div>
-              )}
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                  Correo Electrónico
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="email"
-                    required
-                    placeholder="tucorreo@ejemplo.com"
-                    value={authForm.email}
-                    onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                  />
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Contraseña
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      placeholder="••••••••"
+                      value={authForm.password}
+                      onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                    />
+                  </div>
                 </div>
+
+                <button
+                  type="submit"
+                  disabled={authSubmitting}
+                  className="w-full py-3 bg-gradient-to-r from-rose-600 via-rose-500 to-pink-600 hover:opacity-95 text-white text-sm font-bold rounded-xl shadow-lg shadow-rose-600/30 transition duration-200 active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {authSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>
+                    {authModalTab === 'login' ? 'Acceder a mi Cuenta' : 'Crear Cuenta Gratis'}
+                  </span>
+                </button>
+              </form>
+
+              {/* Botón de Acceso Rápido como Invitado dentro del Modal */}
+              <div className="mt-4 pt-4 border-t border-slate-800/80 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleGuestLogin}
+                  className="w-full py-2 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Probar como Lector Invitado (Sin Registro)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAdminLoginDemo}
+                  className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2"
+                >
+                  <Crown className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Acceso Rápido como Administrador Maestro (Demo)</span>
+                </button>
               </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                  Contraseña
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    placeholder="••••••••"
-                    value={authForm.password}
-                    onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={authSubmitting}
-                className="w-full py-3 bg-gradient-to-r from-rose-600 via-rose-500 to-pink-600 hover:opacity-95 text-white text-sm font-bold rounded-xl shadow-lg shadow-rose-600/30 transition duration-200 active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {authSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>
-                  {authModalTab === 'login' ? 'Acceder a mi Cuenta' : 'Crear Cuenta Gratis'}
-                </span>
-              </button>
-            </form>
-
-            {/* Alternador rápido entre Iniciar Sesión y Registrarse */}
-            <div className="mt-6 pt-4 border-t border-slate-800/80 text-center">
-              {authModalTab === 'login' ? (
-                <p className="text-xs text-slate-400">
-                  ¿No tienes una cuenta aún?{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuthModalTab('register');
-                      setAuthError('');
-                    }}
-                    className="text-rose-400 hover:text-rose-300 font-semibold underline underline-offset-2 transition"
-                  >
-                    Regístrate aquí
-                  </button>
-                </p>
-              ) : (
-                <p className="text-xs text-slate-400">
-                  ¿Ya tienes cuenta registrada?{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuthModalTab('login');
-                      setAuthError('');
-                    }}
-                    className="text-rose-400 hover:text-rose-300 font-semibold underline underline-offset-2 transition"
-                  >
-                    Inicia sesión aquí
-                  </button>
-                </p>
-              )}
             </div>
           </div>
+        )}
 
-          <p className="text-center text-[11px] text-slate-500 mt-6">
-            MangaKura Tracker • Sincronización en tiempo real • Catálogo AniList API
-          </p>
-        </div>
+        {/* Footer */}
+        <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500 mt-auto">
+          <p>MangaKura Tracker • Manga, Manhwa y Manhua con AniList API y Firebase Cloud</p>
+        </footer>
       </div>
     );
   }
@@ -1574,33 +1697,63 @@ export default function App() {
 
           {/* Vistas, Botón Añadir y Panel de Usuario */}
           <div className="flex items-center space-x-2.5 sm:space-x-3">
-            {/* Selector de Vistas */}
+            {/* Pestañas Principales: Biblioteca vs Portada & Top */}
             <div className="flex bg-slate-900/90 border border-slate-800 rounded-xl p-1 text-xs">
               <button
-                onClick={() => setViewMode('grid')}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition ${
-                  viewMode === 'grid'
+                onClick={() => setActiveMainTab('library')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition ${
+                  activeMainTab === 'library'
                     ? 'bg-rose-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="Vista de Cuadrícula"
+                title="Mi Biblioteca de Lecturas"
               >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">Tarjetas</span>
+                <BookOpen className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Biblioteca</span>
               </button>
               <button
-                onClick={() => setViewMode('kanban')}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition ${
-                  viewMode === 'kanban'
-                    ? 'bg-rose-600 text-white shadow-sm'
+                onClick={() => setActiveMainTab('portada')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition ${
+                  activeMainTab === 'portada'
+                    ? 'bg-gradient-to-r from-amber-500 to-rose-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="Vista Kanban"
+                title="Portada y Ranking de Obras Más Puntuadas"
               >
-                <Kanban className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">Tablero</span>
+                <Trophy className="w-3.5 h-3.5 text-amber-300" />
+                <span className="hidden sm:inline">Top Puntuados</span>
               </button>
             </div>
+
+            {/* Selector de Vistas de Tarjeta/Kanban (visible cuando está en biblioteca) */}
+            {activeMainTab === 'library' && (
+              <div className="flex bg-slate-900/90 border border-slate-800 rounded-xl p-1 text-xs">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition ${
+                    viewMode === 'grid'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Vista de Cuadrícula"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Tarjetas</span>
+                </button>
+                <button
+                  onClick={() => setViewMode('kanban')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition ${
+                    viewMode === 'kanban'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Vista Kanban"
+                >
+                  <Kanban className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Tablero</span>
+                </button>
+              </div>
+            )}
 
             {/* Botón Administrador / Cuentas - Solo visible para cuentas con rol Admin */}
             {user.role === 'admin' && (
@@ -1691,7 +1844,42 @@ export default function App() {
 
       {/* Contenido Principal */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex-1">
-        {/* Estadísticas Superiores */}
+        {activeMainTab === 'portada' ? (
+          <PortadaLanding
+            user={user}
+            items={items}
+            onAddFromTop={handleAddFromTop}
+            onGoToLibrary={() => setActiveMainTab('library')}
+            showBackToLibraryButton={true}
+          />
+        ) : (
+          <>
+            {/* Banner de Descubrimiento de Top Obras */}
+            <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-rose-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
+                  <Trophy className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-white flex items-center gap-1.5">
+                    <span>Ranking de Obras Mejor Puntuadas</span>
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono font-bold">TOP SITIO</span>
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Descubre Berserk (10⭐), Solo Leveling (9.8⭐) y más obras maestras para almacenar en tu biblioteca.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveMainTab('portada')}
+                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-rose-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-md transition active:scale-95 flex items-center gap-1.5 flex-shrink-0"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Ver Portada & Ranking</span>
+              </button>
+            </div>
+
+            {/* Estadísticas Superiores */}
         <section className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
           <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm shadow-inner relative overflow-hidden group">
             <div className="absolute right-2 top-2 p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
@@ -1937,6 +2125,8 @@ export default function App() {
               );
             })}
           </div>
+        )}
+          </>
         )}
       </main>
 
