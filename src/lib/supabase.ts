@@ -335,6 +335,293 @@ export const syncUserMangasToSupabase = async (
   }
 };
 
+export const saveMangaToSupabase = async (
+  userUid: string,
+  item: MangaItem
+): Promise<boolean> => {
+  if (!supabaseInstance && !isSupabaseConfigured()) return false;
+  if (!supabaseInstance) return false;
+
+  try {
+    const row = {
+      id: item.id,
+      user_uid: userUid,
+      title: item.title,
+      format: item.format || 'manga',
+      status: item.status || 'plan_to_read',
+      cover: item.cover || '',
+      current_chap: Number(item.currentChap) || 0,
+      total_chap: Number(item.totalChap) || 0,
+      score: Number(item.score) || 0,
+      genre: item.genre || null,
+      author: item.author || null,
+      notes: item.notes || null,
+      updated_at: item.updatedAt || new Date().toISOString(),
+      anilist_id: item.anilistId || null
+    };
+
+    const { error } = await supabaseInstance.from('user_mangas').upsert(row, {
+      onConflict: 'id'
+    });
+
+    if (error) {
+      console.warn('Error guardando manga en Supabase:', error.message);
+      return false;
+    }
+
+    // Actualizar conteo de obras del usuario en user_accounts
+    const { count } = await supabaseInstance
+      .from('user_mangas')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_uid', userUid);
+
+    if (typeof count === 'number') {
+      await updateAccountInSupabase(userUid, { mangaCount: count });
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error de red al guardar manga en Supabase:', err);
+    return false;
+  }
+};
+
+export const deleteMangaFromSupabase = async (
+  userUid: string,
+  mangaId: string
+): Promise<boolean> => {
+  if (!supabaseInstance && !isSupabaseConfigured()) return false;
+  if (!supabaseInstance) return false;
+
+  try {
+    const { error } = await supabaseInstance
+      .from('user_mangas')
+      .delete()
+      .eq('id', mangaId)
+      .eq('user_uid', userUid);
+
+    if (error) {
+      console.warn('Error eliminando manga en Supabase:', error.message);
+      return false;
+    }
+
+    const { count } = await supabaseInstance
+      .from('user_mangas')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_uid', userUid);
+
+    if (typeof count === 'number') {
+      await updateAccountInSupabase(userUid, { mangaCount: count });
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error de red al eliminar manga en Supabase:', err);
+    return false;
+  }
+};
+
+export const updateMangaStatusInSupabase = async (
+  userUid: string,
+  mangaId: string,
+  status: string,
+  currentChap?: number
+): Promise<boolean> => {
+  if (!supabaseInstance && !isSupabaseConfigured()) return false;
+  if (!supabaseInstance) return false;
+
+  try {
+    const payload: any = {
+      status,
+      updated_at: new Date().toISOString()
+    };
+    if (typeof currentChap === 'number') {
+      payload.current_chap = currentChap;
+    }
+
+    const { error } = await supabaseInstance
+      .from('user_mangas')
+      .update(payload)
+      .eq('id', mangaId)
+      .eq('user_uid', userUid);
+
+    if (error) {
+      console.warn('Error actualizando estado en Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Fallo actualizando estado en Supabase:', err);
+    return false;
+  }
+};
+
+export const updateMangaProgressInSupabase = async (
+  userUid: string,
+  mangaId: string,
+  currentChap: number,
+  status?: string
+): Promise<boolean> => {
+  if (!supabaseInstance && !isSupabaseConfigured()) return false;
+  if (!supabaseInstance) return false;
+
+  try {
+    const payload: any = {
+      current_chap: currentChap,
+      updated_at: new Date().toISOString()
+    };
+    if (status) {
+      payload.status = status;
+    }
+
+    const { error } = await supabaseInstance
+      .from('user_mangas')
+      .update(payload)
+      .eq('id', mangaId)
+      .eq('user_uid', userUid);
+
+    if (error) {
+      console.warn('Error actualizando progreso en Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Fallo actualizando progreso en Supabase:', err);
+    return false;
+  }
+};
+
+// ==========================================
+// AUTENTICACIÓN DIRECTA CON SUPABASE
+// ==========================================
+
+export const authenticateUserWithSupabase = async (
+  email: string,
+  password?: string
+): Promise<{ success: boolean; user?: UserAccount; error?: string }> => {
+  if (!isSupabaseConfigured() || !supabaseInstance) {
+    return { success: false, error: 'La base de datos de Supabase no está configurada.' };
+  }
+
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const { data, error } = await supabaseInstance
+      .from('user_accounts')
+      .select('*')
+      .ilike('email', cleanEmail)
+      .maybeSingle();
+
+    if (error) {
+      return { success: false, error: 'Error en Supabase: ' + error.message };
+    }
+
+    if (!data) {
+      return { success: false, error: 'No se encontró ninguna cuenta registrada con este correo en Supabase.' };
+    }
+
+    if (password && data.password && data.password !== password) {
+      return { success: false, error: 'Contraseña incorrecta. Por favor verifica tus credenciales.' };
+    }
+
+    const userAccount: UserAccount = {
+      uid: data.uid,
+      email: data.email,
+      displayName: data.display_name || data.email?.split('@')[0] || 'Lector',
+      role: data.role || 'user',
+      password: data.password || 'mangakura123',
+      createdAt: data.created_at || new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      avatarGradient: data.avatar_gradient,
+      isAnonymous: !!data.is_anonymous,
+      mangaCount: data.manga_count || 0
+    };
+
+    // Actualizar last_login en Supabase
+    await supabaseInstance
+      .from('user_accounts')
+      .update({ last_login: new Date().toISOString() })
+      .eq('uid', userAccount.uid);
+
+    return { success: true, user: userAccount };
+  } catch (err: any) {
+    return { success: false, error: 'Fallo de conexión con Supabase: ' + (err?.message || err) };
+  }
+};
+
+export const registerUserInSupabase = async (
+  accountData: UserAccount
+): Promise<{ success: boolean; user?: UserAccount; error?: string }> => {
+  if (!isSupabaseConfigured() || !supabaseInstance) {
+    return { success: false, error: 'La base de datos de Supabase no está configurada. Por favor conecta tu proyecto.' };
+  }
+
+  try {
+    const cleanEmail = accountData.email.trim().toLowerCase();
+    const { data: existing } = await supabaseInstance
+      .from('user_accounts')
+      .select('uid, email')
+      .ilike('email', cleanEmail)
+      .maybeSingle();
+
+    if (existing) {
+      return { success: false, error: 'El correo ya se encuentra registrado en Supabase. Inicia sesión.' };
+    }
+
+    const ok = await upsertAccountToSupabase(accountData);
+    if (!ok) {
+      return { success: false, error: 'No se pudo guardar la cuenta en la tabla user_accounts de Supabase. Revisa las políticas RLS o columnas de la tabla.' };
+    }
+
+    return { success: true, user: accountData };
+  } catch (err: any) {
+    return { success: false, error: 'Error registrando en Supabase: ' + (err?.message || err) };
+  }
+};
+
+export const fetchUserAccountByUid = async (uid: string): Promise<UserAccount | null> => {
+  if (!isSupabaseConfigured() || !supabaseInstance) return null;
+  try {
+    const { data, error } = await supabaseInstance
+      .from('user_accounts')
+      .select('*')
+      .eq('uid', uid)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return {
+      uid: data.uid,
+      email: data.email,
+      displayName: data.display_name || data.email?.split('@')[0] || 'Lector',
+      role: data.role || 'user',
+      createdAt: data.created_at || new Date().toISOString(),
+      lastLogin: data.last_login || data.created_at || new Date().toISOString(),
+      avatarGradient: data.avatar_gradient,
+      isAnonymous: !!data.is_anonymous,
+      mangaCount: data.manga_count || 0,
+      password: data.password || 'mangakura123'
+    };
+  } catch {
+    return null;
+  }
+};
+
+// Limpieza de datos locales heredados / antiguos para asegurar que todo provenga exclusivamente de Supabase
+export const cleanLegacyLocalStorage = () => {
+  try {
+    localStorage.removeItem('mangakura_registered_accounts');
+    localStorage.removeItem('inkrealm_registered_accounts');
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('mangakura_mangas_') || k.startsWith('inkrealm_mangas_'))) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  } catch (e) {}
+};
+
 // ==========================================
 // CÓDIGO SQL COPIABLE PARA SUPABASE
 // ==========================================

@@ -36,6 +36,7 @@ import {
   Unlock
 } from 'lucide-react';
 import { UserAccount, MangaItem, MangaFormat } from '../types';
+import { fetchMangasFromSupabase } from '../lib/supabase';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -280,15 +281,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   };
 
-  const handleInspect = (account: UserAccount) => {
+  const handleInspect = async (account: UserAccount) => {
     setInspectingUser(account);
+    setInspectingMangas([]);
     try {
-      const raw = localStorage.getItem(`mangakura_mangas_${account.uid}`) || localStorage.getItem(`inkrealm_mangas_${account.uid}`);
-      if (raw) {
-        setInspectingMangas(JSON.parse(raw));
-      } else {
-        setInspectingMangas([]);
-      }
+      const cloudMangas = await fetchMangasFromSupabase(account.uid);
+      setInspectingMangas(cloudMangas);
     } catch {
       setInspectingMangas([]);
     }
