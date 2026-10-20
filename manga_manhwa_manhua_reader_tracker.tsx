@@ -63,7 +63,8 @@ import {
   doc,
   setDoc,
   deleteDoc,
-  onSnapshot
+  onSnapshot,
+  getDocs
 } from 'firebase/firestore';
 
 import { AdminPanelModal } from './src/components/AdminPanelModal';
@@ -336,35 +337,77 @@ const getStoredAccountsWithStats = () => {
   });
 };
 
-// Helper para sincronizar/guardar una cuenta en el directorio
-const saveAccountToDirectory = (accountData) => {
+// Helper para sincronizar/guardar una cuenta en el directorio y bases de datos (Supabase y/o Firestore)
+const saveAccountToDirectory = async (accountData: any): Promise<UserAccount[]> => {
   try {
     const accounts = getStoredAccountsWithStats();
-    const index = accounts.findIndex((a) => a.uid === accountData.uid || (accountData.email && a.email?.toLowerCase() === accountData.email.toLowerCase()));
-    let next;
+    const index = accounts.findIndex(
+      (a: any) =>
+        a.uid === accountData.uid ||
+        (accountData.email && a.email?.toLowerCase() === accountData.email.toLowerCase())
+    );
+
+    const cleanAccount: UserAccount = {
+      uid: accountData.uid,
+      email: accountData.email,
+      displayName: accountData.displayName || accountData.email?.split('@')[0] || 'Lector',
+      role: accountData.role || 'user',
+      password: accountData.password || 'mangakura123',
+      createdAt: accountData.createdAt || new Date().toISOString(),
+      lastLogin:
+        accountData.lastLogin && accountData.lastLogin !== 'Nunca'
+          ? accountData.lastLogin
+          : new Date().toISOString(),
+      avatarGradient:
+        accountData.avatarGradient ||
+        (accountData.role === 'admin'
+          ? 'from-amber-500 via-rose-500 to-red-600'
+          : 'from-indigo-500 via-purple-500 to-violet-600'),
+      isAnonymous: !!accountData.isAnonymous,
+      mangaCount: typeof accountData.mangaCount === 'number' ? accountData.mangaCount : 0
+    };
+
+    let next: UserAccount[];
     if (index >= 0) {
       next = [...accounts];
       next[index] = {
         ...next[index],
-        ...accountData,
+        ...cleanAccount,
         lastLogin: new Date().toISOString()
       };
     } else {
-      next = [
-        {
-          ...accountData,
-          createdAt: accountData.createdAt || new Date().toISOString(),
-          lastLogin: new Date().toISOString()
-        },
-        ...accounts
-      ];
+      next = [cleanAccount, ...accounts];
     }
     localStorage.setItem('mangakura_registered_accounts', JSON.stringify(next));
+
+    // 1. Guardar en Supabase si está disponible
     if (isSupabaseConfigured()) {
-      upsertAccountToSupabase(accountData).catch((err) => {
+      try {
+        await upsertAccountToSupabase(cleanAccount);
+      } catch (err) {
         console.warn('Error sincronizando cuenta en Supabase:', err);
-      });
+      }
     }
+
+    // 2. Guardar en Firestore si Firebase está en modo nube
+    if (firebaseConfig.apiKey !== 'demo-api-key') {
+      try {
+        const accountDocRef = doc(db, 'artifacts', appId, 'accounts', cleanAccount.uid);
+        await setDoc(accountDocRef, cleanAccount, { merge: true });
+      } catch (err) {
+        console.warn('Error sincronizando cuenta en Firestore:', err);
+      }
+    }
+
+    // 3. Notificar a todas las demás pestañas/ventanas abiertas (sincronización multi-pestaña)
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('mangakura_sync_channel');
+        bc.postMessage({ type: 'ACCOUNT_SAVED', account: cleanAccount });
+        bc.close();
+      }
+    } catch (e) {}
+
     return next;
   } catch (e) {
     console.error('Error al guardar en directorio de cuentas:', e);
@@ -444,28 +487,108 @@ export default function App() {
     setTimeout(() => setAdminToast(''), 3500);
   };
 
-  const refreshAccountsList = async () => {
+  const refreshAccountsList = async (): Promise<UserAccount[]> => {
+    // 1. Obtener lista local como punto de partida inmediato
     const list = getStoredAccountsWithStats();
-    setRegisteredAccounts(list as any);
+    const map = new Map<string, UserAccount>();
+    list.forEach((a) => map.set(a.uid, a));
 
+    // 2. Obtener cuentas desde Firestore (si Firebase está en modo nube)
+    if (firebaseConfig.apiKey !== 'demo-api-key') {
+      try {
+        const snap = await getDocs(collection(db, 'artifacts', appId, 'accounts'));
+        snap.forEach((docSnap) => {
+          const cloudAcc = docSnap.data() as UserAccount;
+          if (cloudAcc && cloudAcc.uid) {
+            map.set(cloudAcc.uid, { ...map.get(cloudAcc.uid), ...cloudAcc });
+          }
+        });
+      } catch (err) {
+        console.warn('Error consultando cuentas en Firestore:', err);
+      }
+    }
+
+    // 3. Obtener cuentas desde Supabase (si Supabase está configurado)
     if (isSupabaseConfigured()) {
       try {
         const cloudAccounts = await fetchAccountsFromSupabase();
         if (cloudAccounts && cloudAccounts.length > 0) {
-          const map = new Map<string, UserAccount>();
-          list.forEach((a) => map.set(a.uid, a));
-          cloudAccounts.forEach((ca) => map.set(ca.uid, { ...map.get(ca.uid), ...ca }));
-          const merged = Array.from(map.values());
-          setRegisteredAccounts(merged);
-          localStorage.setItem('mangakura_registered_accounts', JSON.stringify(merged));
-          return merged;
+          cloudAccounts.forEach((ca) => {
+            map.set(ca.uid, { ...map.get(ca.uid), ...ca });
+          });
         }
       } catch (err) {
         console.warn('Error sincronizando cuentas desde Supabase:', err);
       }
     }
-    return list;
+
+    const merged = Array.from(map.values());
+    setRegisteredAccounts(merged);
+    localStorage.setItem('mangakura_registered_accounts', JSON.stringify(merged));
+    return merged;
   };
+
+  // Sincronización multi-pestaña mediante BroadcastChannel y eventos storage
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('mangakura_sync_channel');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'ACCOUNT_SAVED') {
+            refreshAccountsList();
+          }
+        };
+      } catch (e) {}
+    }
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'mangakura_registered_accounts') {
+        refreshAccountsList();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      if (bc) bc.close();
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  // Escucha en tiempo real de cuentas creadas o actualizadas en Firestore
+  useEffect(() => {
+    if (firebaseConfig.apiKey === 'demo-api-key') return;
+
+    try {
+      const accountsRef = collection(db, 'artifacts', appId, 'accounts');
+      const unsub = onSnapshot(
+        accountsRef,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const list: UserAccount[] = [];
+            snapshot.forEach((docSnap) => {
+              const acc = docSnap.data() as UserAccount;
+              if (acc && acc.uid) list.push(acc);
+            });
+            if (list.length > 0) {
+              setRegisteredAccounts((prev) => {
+                const map = new Map<string, UserAccount>();
+                prev.forEach((a) => map.set(a.uid, a));
+                list.forEach((ca) => map.set(ca.uid, { ...map.get(ca.uid), ...ca }));
+                const merged = Array.from(map.values());
+                localStorage.setItem('mangakura_registered_accounts', JSON.stringify(merged));
+                return merged;
+              });
+            }
+          }
+        },
+        (err) => {
+          console.warn('Error en listener en tiempo real de cuentas en Firestore:', err);
+        }
+      );
+      return () => unsub();
+    } catch (e) {}
+  }, []);
 
   // Estados de Búsqueda AniList
   const [apiQuery, setApiQuery] = useState('');
@@ -503,24 +626,40 @@ export default function App() {
             const parsed = JSON.parse(savedUser);
             // Asegurar que tenga su rol actualizado
             const allAccs = getStoredAccountsWithStats();
-            const foundAcc = allAccs.find((a) => a.uid === parsed.uid);
-            setUser({ ...parsed, role: foundAcc?.role || parsed.role || 'user' });
+            const foundAcc = allAccs.find((a) => a.uid === parsed.uid || (parsed.email && a.email?.toLowerCase() === parsed.email.toLowerCase()));
+            const isEmailAdmin = (parsed.email || '').toLowerCase().includes('admin');
+            const role = foundAcc?.role || (isEmailAdmin ? 'admin' : (parsed.role || 'user'));
+            setUser({ ...parsed, role });
           }
         }
       } catch (err) {
         console.warn('Iniciando sesión anónima como respaldo:', err);
       } finally {
-        refreshAccountsList();
+        await refreshAccountsList();
         if (isMounted) setAuthLoading(false);
       }
     };
 
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        setUser(currentUser);
+        const allAccs = getStoredAccountsWithStats();
+        const found = allAccs.find((a) => a.uid === currentUser.uid || (currentUser.email && a.email?.toLowerCase() === currentUser.email?.toLowerCase()));
+        const isEmailAdmin = (currentUser.email || '').toLowerCase().includes('admin');
+        const role = found?.role || (isEmailAdmin ? 'admin' : 'user');
+
+        const enrichedUser = {
+          uid: currentUser.uid,
+          email: currentUser.email || '',
+          displayName: currentUser.displayName || found?.displayName || currentUser.email?.split('@')[0] || 'Lector',
+          role: role,
+          isAnonymous: currentUser.isAnonymous
+        };
+        setUser(enrichedUser);
+        localStorage.setItem('mangakura_user', JSON.stringify(enrichedUser));
       }
       setAuthLoading(false);
+      refreshAccountsList();
     });
 
     return () => {
@@ -599,7 +738,7 @@ export default function App() {
       const isAdminEmail = authForm.email.toLowerCase().includes('admin');
       const assignedRole = (isAdminEmail || allAccs.length === 0) ? 'admin' : 'user';
 
-      const localUser = {
+      const localUser: UserAccount = {
         uid: 'user_' + Math.abs(authForm.email.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)),
         displayName: authForm.displayName.trim() || authForm.email.split('@')[0],
         email: authForm.email,
@@ -607,17 +746,21 @@ export default function App() {
         role: assignedRole,
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
-        isAnonymous: false
+        isAnonymous: false,
+        mangaCount: 0,
+        avatarGradient: assignedRole === 'admin' ? 'from-amber-500 via-rose-500 to-red-600' : 'from-indigo-500 via-purple-500 to-violet-600'
       };
       // Inicializar explícitamente lista vacía para la nueva cuenta
       const storageKey = `mangakura_mangas_${localUser.uid}`;
       localStorage.setItem(storageKey, JSON.stringify([]));
       setItems([]);
       localStorage.setItem('mangakura_user', JSON.stringify(localUser));
-      saveAccountToDirectory(localUser);
+      await saveAccountToDirectory(localUser);
       setUser(localUser);
       setAuthSubmitting(false);
-      refreshAccountsList();
+      await refreshAccountsList();
+      setIsVisitorAuthOpen(false);
+      showAdminToast(`¡Cuenta de ${localUser.displayName} creada exitosamente!`);
       return;
     }
 
@@ -634,20 +777,26 @@ export default function App() {
       }
       // Inicializar explícitamente lista vacía para la cuenta
       setItems([]);
-      const newAcc = {
+      const isAdminEmail = authForm.email.toLowerCase().includes('admin');
+      const newAcc: UserAccount = {
         uid: userCredential.user.uid,
         email: userCredential.user.email || authForm.email,
         displayName: authForm.displayName.trim() || authForm.email.split('@')[0],
         password: authForm.password,
-        role: (authForm.email.toLowerCase().includes('admin') ? 'admin' : 'user') as 'admin' | 'user',
+        role: (isAdminEmail ? 'admin' : 'user') as 'admin' | 'user',
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
         isAnonymous: false,
-        mangaCount: 0
+        mangaCount: 0,
+        avatarGradient: isAdminEmail ? 'from-amber-500 via-rose-500 to-red-600' : 'from-indigo-500 via-purple-500 to-violet-600'
       };
-      saveAccountToDirectory(newAcc);
-      refreshAccountsList();
-    } catch (err) {
+      await saveAccountToDirectory(newAcc);
+      localStorage.setItem('mangakura_user', JSON.stringify(newAcc));
+      setUser(newAcc);
+      await refreshAccountsList();
+      setIsVisitorAuthOpen(false);
+      showAdminToast(`¡Cuenta de ${newAcc.displayName} creada exitosamente!`);
+    } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/email-already-in-use') {
         setAuthError('El correo ya está registrado. Por favor, inicia sesión.');
@@ -681,7 +830,7 @@ export default function App() {
       }
 
       const role = existing ? existing.role : (authForm.email.toLowerCase().includes('admin') ? 'admin' : 'user');
-      const localUser = {
+      const localUser: UserAccount = {
         uid: existing ? existing.uid : ('user_' + Math.abs(authForm.email.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0))),
         displayName: existing?.displayName || authForm.displayName.trim() || authForm.email.split('@')[0],
         email: authForm.email,
@@ -689,19 +838,23 @@ export default function App() {
         role: role,
         createdAt: existing?.createdAt || new Date().toISOString(),
         lastLogin: new Date().toISOString(),
-        isAnonymous: false
+        isAnonymous: false,
+        mangaCount: existing?.mangaCount || 0,
+        avatarGradient: existing?.avatarGradient || (role === 'admin' ? 'from-amber-500 via-rose-500 to-red-600' : 'from-indigo-500 via-purple-500 to-violet-600')
       };
       localStorage.setItem('mangakura_user', JSON.stringify(localUser));
-      saveAccountToDirectory(localUser);
+      await saveAccountToDirectory(localUser);
       setUser(localUser);
       setAuthSubmitting(false);
-      refreshAccountsList();
+      await refreshAccountsList();
+      setIsVisitorAuthOpen(false);
       return;
     }
 
     try {
       await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
-    } catch (err) {
+      setIsVisitorAuthOpen(false);
+    } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         setAuthError('Correo o contraseña incorrectos.');
@@ -721,26 +874,30 @@ export default function App() {
     setAuthSubmitting(true);
 
     if (firebaseConfig.apiKey === 'demo-api-key') {
-      const guestUser = {
+      const guestUser: UserAccount = {
         uid: 'guest_demo_user',
         displayName: 'Lector Invitado',
         email: 'invitado@mangakura.local',
         role: 'guest',
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
-        isAnonymous: true
+        isAnonymous: true,
+        mangaCount: 0,
+        avatarGradient: 'from-slate-600 to-zinc-700'
       };
       localStorage.setItem('mangakura_user', JSON.stringify(guestUser));
-      saveAccountToDirectory(guestUser);
+      await saveAccountToDirectory(guestUser);
       setUser(guestUser);
       setAuthSubmitting(false);
-      refreshAccountsList();
+      await refreshAccountsList();
+      setIsVisitorAuthOpen(false);
       return;
     }
 
     try {
       await signInAnonymously(auth);
-    } catch (err) {
+      setIsVisitorAuthOpen(false);
+    } catch (err: any) {
       console.error(err);
       setAuthError('Error al iniciar como invitado.');
     } finally {
@@ -749,19 +906,25 @@ export default function App() {
   };
 
   // Acceso directo como Administrador Maestro (Demo)
-  const handleAdminLoginDemo = () => {
+  const handleAdminLoginDemo = async () => {
     setAuthError('');
-    const adminUser = {
+    const adminUser: UserAccount = {
       uid: 'admin_master_001',
       displayName: 'Administrador Maestro',
       email: 'admin@mangakura.com',
       role: 'admin',
-      isAnonymous: false
+      password: 'mangakura123',
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      isAnonymous: false,
+      mangaCount: 0,
+      avatarGradient: 'from-amber-500 via-rose-500 to-red-600'
     };
     localStorage.setItem('mangakura_user', JSON.stringify(adminUser));
-    saveAccountToDirectory(adminUser);
+    await saveAccountToDirectory(adminUser);
     setUser(adminUser);
-    refreshAccountsList();
+    await refreshAccountsList();
+    setIsVisitorAuthOpen(false);
     showAdminToast('Sesión iniciada como Administrador Maestro');
   };
 
@@ -780,7 +943,7 @@ export default function App() {
   };
 
   // Alternar Rol (Admin <-> Lector)
-  const handleToggleRole = (targetUid: string) => {
+  const handleToggleRole = async (targetUid: string) => {
     const list = getStoredAccountsWithStats();
     const target = list.find((a: any) => a.uid === targetUid);
     if (!target) return;
@@ -793,12 +956,22 @@ export default function App() {
       updateAccountInSupabase(targetUid, { role: newRole }).catch(console.error);
     }
 
+    if (firebaseConfig.apiKey !== 'demo-api-key') {
+      try {
+        await setDoc(doc(db, 'artifacts', appId, 'accounts', targetUid), { role: newRole }, { merge: true });
+      } catch (e) {
+        console.warn('Error actualizando rol en Firestore:', e);
+      }
+    }
+
     // Si es el usuario actual, actualizar estado
     if (user && user.uid === targetUid) {
       const updatedUser = { ...user, role: newRole };
       setUser(updatedUser);
       localStorage.setItem('mangakura_user', JSON.stringify(updatedUser));
     }
+
+    await refreshAccountsList();
     showAdminToast(`Rol de ${target.displayName || target.email} actualizado a ${newRole === 'admin' ? 'Administrador' : 'Lector'}`);
   };
 
@@ -821,7 +994,7 @@ export default function App() {
   };
 
   // Restaurar sesión de Administrador
-  const handleRestoreAdmin = () => {
+  const handleRestoreAdmin = async () => {
     const adminUser = impersonatedOriginalUser || {
       uid: 'admin_master_001',
       displayName: 'Administrador Maestro',
@@ -832,12 +1005,12 @@ export default function App() {
     localStorage.setItem('mangakura_user', JSON.stringify(adminUser));
     setUser(adminUser);
     setImpersonatedOriginalUser(null);
-    refreshAccountsList();
+    await refreshAccountsList();
     showAdminToast('Sesión restaurada como Administrador Maestro');
   };
 
   // Eliminar Cuenta
-  const handleDeleteAccount = (targetUid: string) => {
+  const handleDeleteAccount = async (targetUid: string) => {
     if (user && user.uid === targetUid) {
       alert('No puedes eliminar la cuenta en la que estás actualmente conectado.');
       return;
@@ -855,11 +1028,20 @@ export default function App() {
       deleteAccountFromSupabase(targetUid).catch(console.error);
     }
 
+    if (firebaseConfig.apiKey !== 'demo-api-key') {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'accounts', targetUid));
+      } catch (e) {
+        console.warn('Error eliminando cuenta en Firestore:', e);
+      }
+    }
+
+    await refreshAccountsList();
     showAdminToast('Cuenta eliminada con éxito.');
   };
 
   // Crear usuario desde el panel de administración
-  const handleCreateAccountFromAdmin = ({
+  const handleCreateAccountFromAdmin = async ({
     displayName,
     email,
     password,
@@ -880,26 +1062,28 @@ export default function App() {
       password: password || 'mangakura123',
       role: role,
       createdAt: new Date().toISOString(),
-      lastLogin: 'Nunca',
+      lastLogin: new Date().toISOString(),
       isAnonymous: false,
+      mangaCount: seedMangas ? 2 : 0,
       avatarGradient:
         role === 'admin'
           ? 'from-amber-500 via-rose-500 to-red-600'
           : 'from-indigo-500 via-purple-500 to-violet-600'
     };
 
-    saveAccountToDirectory(newAcc);
     if (seedMangas) {
       localStorage.setItem(`mangakura_mangas_${newUid}`, JSON.stringify([INITIAL_DEMO_ITEMS[0], INITIAL_DEMO_ITEMS[1]]));
     } else {
       localStorage.setItem(`mangakura_mangas_${newUid}`, JSON.stringify([]));
     }
-    refreshAccountsList();
+
+    await saveAccountToDirectory(newAcc);
+    await refreshAccountsList();
     showAdminToast(`Usuario ${newAcc.displayName} creado correctamente`);
   };
 
   // Actualizar datos de cuenta desde el panel
-  const handleUpdateAccount = (updatedData: {
+  const handleUpdateAccount = async (updatedData: {
     uid: string;
     displayName: string;
     email: string;
@@ -919,7 +1103,15 @@ export default function App() {
       updateAccountInSupabase(updatedData.uid, updatedData).catch(console.error);
     }
 
-    refreshAccountsList();
+    if (firebaseConfig.apiKey !== 'demo-api-key') {
+      try {
+        await setDoc(doc(db, 'artifacts', appId, 'accounts', updatedData.uid), updatedData, { merge: true });
+      } catch (e) {
+        console.warn('Error actualizando cuenta en Firestore:', e);
+      }
+    }
+
+    await refreshAccountsList();
     showAdminToast(`Cuenta de "${updatedData.displayName}" actualizada`);
   };
 
@@ -938,6 +1130,12 @@ export default function App() {
 
       if (isSupabaseConfigured()) {
         await updatePasswordInSupabase(uid, newPassword);
+      }
+
+      if (firebaseConfig.apiKey !== 'demo-api-key') {
+        try {
+          await setDoc(doc(db, 'artifacts', appId, 'accounts', uid), { password: newPassword }, { merge: true });
+        } catch (e) {}
       }
 
       await refreshAccountsList();

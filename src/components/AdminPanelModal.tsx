@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Crown,
   Users,
@@ -52,7 +52,7 @@ interface AdminPanelModalProps {
     role: 'admin' | 'user';
     password?: string;
     seedMangas?: boolean;
-  }) => void;
+  }) => Promise<void> | void;
   onUpdateAccount?: (accountData: {
     uid: string;
     displayName: string;
@@ -133,6 +133,22 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'user' | 'guest'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'oldest' | 'mangas' | 'name' | 'lastLogin'>('recent');
+
+  // Actualizar lista de cuentas automáticamente al abrir el panel de administración
+  useEffect(() => {
+    if (isOpen) {
+      onRefreshAccounts();
+    }
+  }, [isOpen]);
+
+  // Sondeo periódico cada 10 segundos mientras el panel esté abierto para detectar nuevas cuentas registradas
+  useEffect(() => {
+    if (!isOpen) return;
+    const interval = setInterval(() => {
+      onRefreshAccounts();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isOpen, onRefreshAccounts]);
 
   // Control de contraseñas visibles por usuario (uid -> boolean)
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
@@ -303,10 +319,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     setEditingUser(null);
   };
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newForm.email.trim()) return;
-    onCreateAccount({
+    await onCreateAccount({
       displayName: newForm.displayName.trim() || newForm.email.split('@')[0],
       email: newForm.email.trim(),
       role: newForm.role,
@@ -437,10 +453,18 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     <span>Conectar Supabase</span>
                   </button>
                 )}
+
+                {/* Badge de conexión a Firebase Firestore */}
+                {isCloudMode && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-300 border border-orange-500/40 flex items-center gap-1.5 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
+                    Firebase Firestore (Nube)
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                {isSupabaseOnline
-                  ? 'Sincronizado en tiempo real con Supabase Cloud Database (con control de contraseñas)'
+                {isSupabaseOnline || isCloudMode
+                  ? 'Sincronizado en tiempo real con la base de datos (con auditoría y control de contraseñas)'
                   : 'Audita y gestiona cuentas, contraseñas y permisos del sistema'}
               </p>
             </div>

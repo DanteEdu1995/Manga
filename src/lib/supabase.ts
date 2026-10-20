@@ -28,10 +28,23 @@ let supabaseInstance: SupabaseClient | null =
     : null;
 
 export const isSupabaseConfigured = (): boolean => {
+  if (!supabaseInstance) {
+    currentConfig = getStoredCredentials();
+    if (currentConfig.url && currentConfig.anonKey) {
+      try {
+        supabaseInstance = createClient(currentConfig.url, currentConfig.anonKey);
+      } catch (e) {
+        return false;
+      }
+    }
+  }
   return !!(currentConfig.url && currentConfig.anonKey && supabaseInstance);
 };
 
 export const getSupabaseConfig = () => {
+  if (!currentConfig.url) {
+    currentConfig = getStoredCredentials();
+  }
   return { ...currentConfig };
 };
 
@@ -63,6 +76,9 @@ export const saveSupabaseConfig = (url: string, anonKey: string): boolean => {
 };
 
 export const getSupabaseClient = (): SupabaseClient | null => {
+  if (!supabaseInstance && isSupabaseConfigured()) {
+    return supabaseInstance;
+  }
   return supabaseInstance;
 };
 
@@ -70,7 +86,14 @@ export const getSupabaseClient = (): SupabaseClient | null => {
 // OPERACIONES CON CUENTAS EN SUPABASE
 // ==========================================
 
+const toValidIso = (dateStr?: string): string => {
+  if (!dateStr || dateStr === 'Nunca') return new Date().toISOString();
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+};
+
 export const fetchAccountsFromSupabase = async (): Promise<UserAccount[]> => {
+  if (!supabaseInstance && !isSupabaseConfigured()) return [];
   if (!supabaseInstance) return [];
 
   try {
@@ -91,8 +114,8 @@ export const fetchAccountsFromSupabase = async (): Promise<UserAccount[]> => {
       email: row.email,
       displayName: row.display_name || row.email?.split('@')[0] || 'Lector',
       role: row.role || 'user',
-      createdAt: row.created_at,
-      lastLogin: row.last_login || row.created_at,
+      createdAt: row.created_at || new Date().toISOString(),
+      lastLogin: row.last_login || row.created_at || new Date().toISOString(),
       avatarGradient: row.avatar_gradient,
       isAnonymous: !!row.is_anonymous,
       mangaCount: row.manga_count || 0,
@@ -105,16 +128,17 @@ export const fetchAccountsFromSupabase = async (): Promise<UserAccount[]> => {
 };
 
 export const upsertAccountToSupabase = async (account: UserAccount): Promise<boolean> => {
+  if (!supabaseInstance && !isSupabaseConfigured()) return false;
   if (!supabaseInstance) return false;
 
   try {
     const payload = {
       uid: account.uid,
       email: account.email,
-      display_name: account.displayName,
-      role: account.role,
-      created_at: account.createdAt,
-      last_login: account.lastLogin,
+      display_name: account.displayName || account.email?.split('@')[0] || 'Lector',
+      role: account.role || 'user',
+      created_at: toValidIso(account.createdAt),
+      last_login: toValidIso(account.lastLogin),
       avatar_gradient: account.avatarGradient || null,
       is_anonymous: !!account.isAnonymous,
       manga_count: account.mangaCount || 0,
@@ -126,6 +150,15 @@ export const upsertAccountToSupabase = async (account: UserAccount): Promise<boo
     });
 
     if (error) {
+      // Si la tabla remota no tiene la columna 'password' aún, reintentar sin ella
+      if (error.message?.includes('password') && error.message?.includes('does not exist')) {
+        const { password, ...payloadWithoutPassword } = payload;
+        const retry = await supabaseInstance.from('user_accounts').upsert(payloadWithoutPassword, {
+          onConflict: 'uid'
+        });
+        if (!retry.error) return true;
+        console.warn('Reintento sin columna password en Supabase falló:', retry.error.message);
+      }
       console.warn('Error haciendo upsert de cuenta en Supabase:', error.message);
       return false;
     }
