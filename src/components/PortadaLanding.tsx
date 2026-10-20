@@ -139,7 +139,6 @@ interface PortadaLandingProps {
   onGoToLibrary?: () => void;
   onOpenAuth?: (tab: 'login' | 'register') => void;
   onGuestLogin?: () => void;
-  onAdminLogin?: () => void;
   showBackToLibraryButton?: boolean;
 }
 
@@ -150,7 +149,6 @@ export const PortadaLanding: React.FC<PortadaLandingProps> = ({
   onGoToLibrary,
   onOpenAuth,
   onGuestLogin,
-  onAdminLogin,
   showBackToLibraryButton = false
 }) => {
   const [formatFilter, setFormatFilter] = useState<'all' | 'manga' | 'manhwa' | 'manhua'>('all');

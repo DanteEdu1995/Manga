@@ -1484,7 +1484,6 @@ export default function App() {
               setIsVisitorAuthOpen(true);
             }}
             onGuestLogin={handleGuestLogin}
-            onAdminLogin={handleAdminLoginDemo}
           />
         </main>
 
@@ -1629,14 +1628,6 @@ export default function App() {
                 >
                   <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
                   <span>Probar como Lector Invitado (Sin Registro)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAdminLoginDemo}
-                  className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2"
-                >
-                  <Crown className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Acceso Rápido como Administrador Maestro (Demo)</span>
                 </button>
               </div>
             </div>
