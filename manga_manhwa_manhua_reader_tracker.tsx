@@ -1063,14 +1063,6 @@ export default function App() {
                 <span>Top Puntuados</span>
               </a>
 
-              <button
-                onClick={() => setIsSupabaseModalOpen(true)}
-                className="px-2.5 py-1.5 sm:px-3 sm:py-2 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 text-xs font-semibold rounded-xl transition active:scale-95 flex items-center gap-1.5"
-                title="Configuración de Base de Datos Supabase"
-              >
-                <Database className={`w-3.5 h-3.5 ${isSupabaseConfigured() ? 'text-emerald-400' : 'text-amber-400'}`} />
-                <span className="hidden sm:inline">Supabase</span>
-              </button>
 
               <button
                 onClick={handleGuestLogin}
@@ -1258,12 +1250,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Modal de Configuración Rápida de Supabase para Visitantes */}
-        <SupabaseConfigModal
-          isOpen={isSupabaseModalOpen}
-          onClose={() => setIsSupabaseModalOpen(false)}
-          onConfigSaved={() => refreshAccountsList()}
-        />
 
         {/* Footer */}
         <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500 mt-auto">
@@ -1377,16 +1363,18 @@ export default function App() {
               </div>
             )}
 
-            {/* Botón Estado / Configuración de Supabase */}
-            <button
-              onClick={() => setIsSupabaseModalOpen(true)}
-              className="flex items-center space-x-1.5 px-3 py-2 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs sm:text-sm font-semibold rounded-xl transition active:scale-95"
-              title="Configurar conexión con Supabase"
-            >
-              <Database className={`w-4 h-4 ${isSupabaseConfigured() ? 'text-emerald-400' : 'text-amber-400'}`} />
-              <span className="hidden md:inline">Supabase</span>
-              <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured() ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-            </button>
+            {/* Botón Estado / Configuración de Supabase - Solo visible para Administradores */}
+            {user.role === 'admin' && (
+              <button
+                onClick={() => setIsSupabaseModalOpen(true)}
+                className="flex items-center space-x-1.5 px-3 py-2 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs sm:text-sm font-semibold rounded-xl transition active:scale-95"
+                title="Configurar conexión con Supabase"
+              >
+                <Database className={`w-4 h-4 ${isSupabaseConfigured() ? 'text-emerald-400' : 'text-amber-400'}`} />
+                <span className="hidden md:inline">Supabase</span>
+                <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured() ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              </button>
+            )}
 
             {/* Botón Administrador / Cuentas - Solo visible para cuentas con rol Admin */}
             {user.role === 'admin' && (
@@ -1478,7 +1466,7 @@ export default function App() {
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           Base de Datos: Supabase Cloud
         </span>
-        {!isSupabaseConfigured() && (
+        {!isSupabaseConfigured() && user.role === 'admin' && (
           <button
             onClick={() => setIsSupabaseModalOpen(true)}
             className="text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-bold hover:bg-amber-500/30 transition flex items-center gap-1"
@@ -1489,8 +1477,8 @@ export default function App() {
         )}
       </div>
 
-      {/* Alerta si Supabase no está configurado */}
-      {!isSupabaseConfigured() && (
+      {/* Alerta si Supabase no está configurado - Solo visible para Administradores */}
+      {!isSupabaseConfigured() && user.role === 'admin' && (
         <div className="bg-amber-950/70 border-b border-amber-800/60 py-2.5 px-4 text-center flex flex-wrap items-center justify-center gap-3 text-xs">
           <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
           <span className="text-amber-200 font-medium">
