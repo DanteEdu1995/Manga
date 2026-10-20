@@ -1456,26 +1456,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Indicador de ID de Usuario y Estado de Supabase */}
-      <div className="bg-slate-950/60 border-b border-slate-900 py-1.5 px-4 text-center flex flex-wrap items-center justify-center gap-3">
-        <span className="text-[11px] text-slate-400 font-mono">
-          UID: <strong className="text-slate-300">{user.uid}</strong>
-        </span>
-        <span className="text-slate-600 hidden sm:inline">•</span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          Base de Datos: Supabase Cloud
-        </span>
-        {!isSupabaseConfigured() && user.role === 'admin' && (
-          <button
-            onClick={() => setIsSupabaseModalOpen(true)}
-            className="text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-bold hover:bg-amber-500/30 transition flex items-center gap-1"
-          >
-            <Database className="w-3 h-3 text-amber-400" />
-            Configurar Conexión
-          </button>
-        )}
-      </div>
 
       {/* Alerta si Supabase no está configurado - Solo visible para Administradores */}
       {!isSupabaseConfigured() && user.role === 'admin' && (
