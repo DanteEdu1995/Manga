@@ -7,7 +7,7 @@ const getStoredCredentials = () => {
   const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 
   try {
-    const local = localStorage.getItem('inkrealm_supabase_config');
+    const local = localStorage.getItem('mangakura_supabase_config') || localStorage.getItem('inkrealm_supabase_config');
     if (local) {
       const parsed = JSON.parse(local);
       if (parsed.url && parsed.anonKey) {
@@ -40,6 +40,7 @@ export const saveSupabaseConfig = (url: string, anonKey: string): boolean => {
   const cleanKey = anonKey.trim();
 
   if (!cleanUrl || !cleanKey) {
+    localStorage.removeItem('mangakura_supabase_config');
     localStorage.removeItem('inkrealm_supabase_config');
     currentConfig = { url: '', anonKey: '' };
     supabaseInstance = null;
@@ -51,7 +52,7 @@ export const saveSupabaseConfig = (url: string, anonKey: string): boolean => {
     supabaseInstance = client;
     currentConfig = { url: cleanUrl, anonKey: cleanKey };
     localStorage.setItem(
-      'inkrealm_supabase_config',
+      'mangakura_supabase_config',
       JSON.stringify({ url: cleanUrl, anonKey: cleanKey })
     );
     return true;
@@ -95,7 +96,7 @@ export const fetchAccountsFromSupabase = async (): Promise<UserAccount[]> => {
       avatarGradient: row.avatar_gradient,
       isAnonymous: !!row.is_anonymous,
       mangaCount: row.manga_count || 0,
-      password: row.password || 'inkrealm123'
+      password: row.password || 'mangakura123'
     }));
   } catch (err) {
     console.error('Fallo de conexión con Supabase user_accounts:', err);
@@ -117,7 +118,7 @@ export const upsertAccountToSupabase = async (account: UserAccount): Promise<boo
       avatar_gradient: account.avatarGradient || null,
       is_anonymous: !!account.isAnonymous,
       manga_count: account.mangaCount || 0,
-      password: account.password || 'inkrealm123'
+      password: account.password || 'mangakura123'
     };
 
     const { error } = await supabaseInstance.from('user_accounts').upsert(payload, {
@@ -304,13 +305,13 @@ export const syncUserMangasToSupabase = async (
 // ==========================================
 // CÓDIGO SQL COPIABLE PARA SUPABASE
 // ==========================================
-export const SUPABASE_SETUP_SQL = `-- 1. Tabla de Cuentas para el Panel de Administrador de InkRealm (con control de contraseñas)
+export const SUPABASE_SETUP_SQL = `-- 1. Tabla de Cuentas para el Panel de Administrador de MangaKura (con control de contraseñas)
 CREATE TABLE IF NOT EXISTS public.user_accounts (
   uid TEXT PRIMARY KEY,
   email TEXT NOT NULL,
   display_name TEXT,
   role TEXT NOT NULL DEFAULT 'user',
-  password TEXT DEFAULT 'inkrealm123',
+  password TEXT DEFAULT 'mangakura123',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   last_login TIMESTAMPTZ DEFAULT NOW(),
   avatar_gradient TEXT,
@@ -319,7 +320,7 @@ CREATE TABLE IF NOT EXISTS public.user_accounts (
 );
 
 -- Migración segura por si la tabla ya existía previamente:
-ALTER TABLE public.user_accounts ADD COLUMN IF NOT EXISTS password TEXT DEFAULT 'inkrealm123';
+ALTER TABLE public.user_accounts ADD COLUMN IF NOT EXISTS password TEXT DEFAULT 'mangakura123';
 
 -- 2. Tabla de Mangas / Obras asociadas a cada usuario
 CREATE TABLE IF NOT EXISTS public.user_mangas (

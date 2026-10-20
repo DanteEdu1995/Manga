@@ -99,7 +99,7 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'inkrealm-reader-app';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'mangakura-reader-app';
 
 // Formatos reconocidos según origen
 const FORMAT_CONFIG = {
@@ -240,7 +240,7 @@ const INITIAL_DEMO_ITEMS = [
 const INITIAL_DEMO_ACCOUNTS = [
   {
     uid: 'admin_master_001',
-    email: 'admin@inkrealm.com',
+    email: 'admin@mangakura.com',
     displayName: 'Administrador Maestro',
     role: 'admin',
     password: 'admin123',
@@ -273,7 +273,7 @@ const INITIAL_DEMO_ACCOUNTS = [
   },
   {
     uid: 'guest_demo_user',
-    email: 'invitado@inkrealm.local',
+    email: 'invitado@mangakura.local',
     displayName: 'Lector Invitado',
     role: 'guest',
     password: 'invitado123',
@@ -284,27 +284,34 @@ const INITIAL_DEMO_ACCOUNTS = [
   }
 ];
 
+// Helper para compatibilidad de almacenamiento MangaKura / InkRealm
+const getStorageItem = (key: string): string | null => {
+  const current = localStorage.getItem(key);
+  if (current !== null) return current;
+  return localStorage.getItem(key.replace('mangakura_', 'inkrealm_'));
+};
+
 // Helper para obtener y calcular mangas de todas las cuentas registradas
 const getStoredAccountsWithStats = () => {
   let accounts = [];
   try {
-    const raw = localStorage.getItem('inkrealm_registered_accounts');
+    const raw = getStorageItem('mangakura_registered_accounts');
     if (raw) {
       accounts = JSON.parse(raw);
     } else {
       accounts = INITIAL_DEMO_ACCOUNTS;
-      localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(INITIAL_DEMO_ACCOUNTS));
-      if (!localStorage.getItem('inkrealm_mangas_user_otaku_002')) {
-        localStorage.setItem('inkrealm_mangas_user_otaku_002', JSON.stringify([INITIAL_DEMO_ITEMS[1], INITIAL_DEMO_ITEMS[3]]));
+      localStorage.setItem('mangakura_registered_accounts', JSON.stringify(INITIAL_DEMO_ACCOUNTS));
+      if (!getStorageItem('mangakura_mangas_user_otaku_002')) {
+        localStorage.setItem('mangakura_mangas_user_otaku_002', JSON.stringify([INITIAL_DEMO_ITEMS[1], INITIAL_DEMO_ITEMS[3]]));
       }
-      if (!localStorage.getItem('inkrealm_mangas_user_hunter_003')) {
-        localStorage.setItem('inkrealm_mangas_user_hunter_003', JSON.stringify([INITIAL_DEMO_ITEMS[0], INITIAL_DEMO_ITEMS[2]]));
+      if (!getStorageItem('mangakura_mangas_user_hunter_003')) {
+        localStorage.setItem('mangakura_mangas_user_hunter_003', JSON.stringify([INITIAL_DEMO_ITEMS[0], INITIAL_DEMO_ITEMS[2]]));
       }
-      if (!localStorage.getItem('inkrealm_mangas_admin_master_001')) {
-        localStorage.setItem('inkrealm_mangas_admin_master_001', JSON.stringify(INITIAL_DEMO_ITEMS));
+      if (!getStorageItem('mangakura_mangas_admin_master_001')) {
+        localStorage.setItem('mangakura_mangas_admin_master_001', JSON.stringify(INITIAL_DEMO_ITEMS));
       }
-      if (!localStorage.getItem('inkrealm_mangas_guest_demo_user')) {
-        localStorage.setItem('inkrealm_mangas_guest_demo_user', JSON.stringify(INITIAL_DEMO_ITEMS));
+      if (!getStorageItem('mangakura_mangas_guest_demo_user')) {
+        localStorage.setItem('mangakura_mangas_guest_demo_user', JSON.stringify(INITIAL_DEMO_ITEMS));
       }
     }
   } catch (e) {
@@ -315,7 +322,7 @@ const getStoredAccountsWithStats = () => {
   return accounts.map((acc) => {
     let mangaCount = 0;
     try {
-      const mangasRaw = localStorage.getItem(`inkrealm_mangas_${acc.uid}`);
+      const mangasRaw = getStorageItem(`mangakura_mangas_${acc.uid}`);
       if (mangasRaw) {
         const parsed = JSON.parse(mangasRaw);
         mangaCount = Array.isArray(parsed) ? parsed.length : 0;
@@ -350,7 +357,7 @@ const saveAccountToDirectory = (accountData) => {
         ...accounts
       ];
     }
-    localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(next));
+    localStorage.setItem('mangakura_registered_accounts', JSON.stringify(next));
     if (isSupabaseConfigured()) {
       upsertAccountToSupabase(accountData).catch((err) => {
         console.warn('Error sincronizando cuenta en Supabase:', err);
@@ -444,7 +451,7 @@ export default function App() {
           cloudAccounts.forEach((ca) => map.set(ca.uid, { ...map.get(ca.uid), ...ca }));
           const merged = Array.from(map.values());
           setRegisteredAccounts(merged);
-          localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(merged));
+          localStorage.setItem('mangakura_registered_accounts', JSON.stringify(merged));
           return merged;
         }
       } catch (err) {
@@ -485,7 +492,7 @@ export default function App() {
           await signInWithCustomToken(auth, __initial_auth_token);
         } else if (firebaseConfig.apiKey === 'demo-api-key') {
           // Sesión local persistente si ya inició sesión anteriormente
-          const savedUser = localStorage.getItem('inkrealm_user');
+          const savedUser = getStorageItem('mangakura_user');
           if (savedUser) {
             const parsed = JSON.parse(savedUser);
             // Asegurar que tenga su rol actualizado
@@ -526,8 +533,8 @@ export default function App() {
 
     // Modo local / demo si no hay claves reales de Firebase configuradas
     if (firebaseConfig.apiKey === 'demo-api-key') {
-      const storageKey = `inkrealm_mangas_${user.uid}`;
-      const saved = localStorage.getItem(storageKey);
+      const storageKey = `mangakura_mangas_${user.uid}`;
+      const saved = getStorageItem(storageKey);
       if (saved) {
         try {
           setItems(JSON.parse(saved));
@@ -591,13 +598,13 @@ export default function App() {
         uid: 'user_' + Math.abs(authForm.email.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)),
         displayName: authForm.displayName.trim() || authForm.email.split('@')[0],
         email: authForm.email,
-        password: authForm.password || 'inkrealm123',
+        password: authForm.password || 'mangakura123',
         role: assignedRole,
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
         isAnonymous: false
       };
-      localStorage.setItem('inkrealm_user', JSON.stringify(localUser));
+      localStorage.setItem('mangakura_user', JSON.stringify(localUser));
       saveAccountToDirectory(localUser);
       setUser(localUser);
       setAuthSubmitting(false);
@@ -666,13 +673,13 @@ export default function App() {
         uid: existing ? existing.uid : ('user_' + Math.abs(authForm.email.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0))),
         displayName: existing?.displayName || authForm.displayName.trim() || authForm.email.split('@')[0],
         email: authForm.email,
-        password: existing?.password || authForm.password || 'inkrealm123',
+        password: existing?.password || authForm.password || 'mangakura123',
         role: role,
         createdAt: existing?.createdAt || new Date().toISOString(),
         lastLogin: new Date().toISOString(),
         isAnonymous: false
       };
-      localStorage.setItem('inkrealm_user', JSON.stringify(localUser));
+      localStorage.setItem('mangakura_user', JSON.stringify(localUser));
       saveAccountToDirectory(localUser);
       setUser(localUser);
       setAuthSubmitting(false);
@@ -705,13 +712,13 @@ export default function App() {
       const guestUser = {
         uid: 'guest_demo_user',
         displayName: 'Lector Invitado',
-        email: 'invitado@inkrealm.local',
+        email: 'invitado@mangakura.local',
         role: 'guest',
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
         isAnonymous: true
       };
-      localStorage.setItem('inkrealm_user', JSON.stringify(guestUser));
+      localStorage.setItem('mangakura_user', JSON.stringify(guestUser));
       saveAccountToDirectory(guestUser);
       setUser(guestUser);
       setAuthSubmitting(false);
@@ -735,11 +742,11 @@ export default function App() {
     const adminUser = {
       uid: 'admin_master_001',
       displayName: 'Administrador Maestro',
-      email: 'admin@inkrealm.com',
+      email: 'admin@mangakura.com',
       role: 'admin',
       isAnonymous: false
     };
-    localStorage.setItem('inkrealm_user', JSON.stringify(adminUser));
+    localStorage.setItem('mangakura_user', JSON.stringify(adminUser));
     saveAccountToDirectory(adminUser);
     setUser(adminUser);
     refreshAccountsList();
@@ -749,6 +756,7 @@ export default function App() {
   // Cierre de Sesión
   const handleSignOut = async () => {
     try {
+      localStorage.removeItem('mangakura_user');
       localStorage.removeItem('inkrealm_user');
       setUser(null);
       if (firebaseConfig.apiKey !== 'demo-api-key') {
@@ -766,7 +774,7 @@ export default function App() {
     if (!target) return;
     const newRole = target.role === 'admin' ? 'user' : 'admin';
     const updated = list.map((a: any) => (a.uid === targetUid ? { ...a, role: newRole } : a));
-    localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(updated));
+    localStorage.setItem('mangakura_registered_accounts', JSON.stringify(updated));
     setRegisteredAccounts(getStoredAccountsWithStats() as any);
 
     if (isSupabaseConfigured()) {
@@ -777,7 +785,7 @@ export default function App() {
     if (user && user.uid === targetUid) {
       const updatedUser = { ...user, role: newRole };
       setUser(updatedUser);
-      localStorage.setItem('inkrealm_user', JSON.stringify(updatedUser));
+      localStorage.setItem('mangakura_user', JSON.stringify(updatedUser));
     }
     showAdminToast(`Rol de ${target.displayName || target.email} actualizado a ${newRole === 'admin' ? 'Administrador' : 'Lector'}`);
   };
@@ -794,7 +802,7 @@ export default function App() {
       role: account.role || 'user',
       isAnonymous: !!account.isAnonymous
     };
-    localStorage.setItem('inkrealm_user', JSON.stringify(impersonated));
+    localStorage.setItem('mangakura_user', JSON.stringify(impersonated));
     setUser(impersonated);
     setIsAdminModalOpen(false);
     showAdminToast(`Navegando ahora como: ${impersonated.displayName}`);
@@ -805,11 +813,11 @@ export default function App() {
     const adminUser = impersonatedOriginalUser || {
       uid: 'admin_master_001',
       displayName: 'Administrador Maestro',
-      email: 'admin@inkrealm.com',
+      email: 'admin@mangakura.com',
       role: 'admin',
       isAnonymous: false
     };
-    localStorage.setItem('inkrealm_user', JSON.stringify(adminUser));
+    localStorage.setItem('mangakura_user', JSON.stringify(adminUser));
     setUser(adminUser);
     setImpersonatedOriginalUser(null);
     refreshAccountsList();
@@ -826,7 +834,8 @@ export default function App() {
       return;
     }
     const list = getStoredAccountsWithStats().filter((a: any) => a.uid !== targetUid);
-    localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(list));
+    localStorage.setItem('mangakura_registered_accounts', JSON.stringify(list));
+    localStorage.removeItem(`mangakura_mangas_${targetUid}`);
     localStorage.removeItem(`inkrealm_mangas_${targetUid}`);
     setRegisteredAccounts(getStoredAccountsWithStats() as any);
 
@@ -856,7 +865,7 @@ export default function App() {
       uid: newUid,
       email: email,
       displayName: displayName,
-      password: password || 'inkrealm123',
+      password: password || 'mangakura123',
       role: role,
       createdAt: new Date().toISOString(),
       lastLogin: 'Nunca',
@@ -869,9 +878,9 @@ export default function App() {
 
     saveAccountToDirectory(newAcc);
     if (seedMangas) {
-      localStorage.setItem(`inkrealm_mangas_${newUid}`, JSON.stringify([INITIAL_DEMO_ITEMS[0], INITIAL_DEMO_ITEMS[1]]));
+      localStorage.setItem(`mangakura_mangas_${newUid}`, JSON.stringify([INITIAL_DEMO_ITEMS[0], INITIAL_DEMO_ITEMS[1]]));
     } else {
-      localStorage.setItem(`inkrealm_mangas_${newUid}`, JSON.stringify([]));
+      localStorage.setItem(`mangakura_mangas_${newUid}`, JSON.stringify([]));
     }
     refreshAccountsList();
     showAdminToast(`Usuario ${newAcc.displayName} creado correctamente`);
@@ -887,11 +896,11 @@ export default function App() {
   }) => {
     const accounts = getStoredAccountsWithStats();
     const next = accounts.map((a: any) => (a.uid === updatedData.uid ? { ...a, ...updatedData } : a));
-    localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(next));
+    localStorage.setItem('mangakura_registered_accounts', JSON.stringify(next));
     if (user && user.uid === updatedData.uid) {
       const updatedUser = { ...user, ...updatedData };
       setUser(updatedUser);
-      localStorage.setItem('inkrealm_user', JSON.stringify(updatedUser));
+      localStorage.setItem('mangakura_user', JSON.stringify(updatedUser));
     }
 
     if (isSupabaseConfigured()) {
@@ -907,12 +916,12 @@ export default function App() {
     try {
       const accounts = getStoredAccountsWithStats();
       const next = accounts.map((a: any) => (a.uid === uid ? { ...a, password: newPassword } : a));
-      localStorage.setItem('inkrealm_registered_accounts', JSON.stringify(next));
+      localStorage.setItem('mangakura_registered_accounts', JSON.stringify(next));
 
       if (user && user.uid === uid) {
         const updatedUser = { ...user, password: newPassword };
         setUser(updatedUser);
-        localStorage.setItem('inkrealm_user', JSON.stringify(updatedUser));
+        localStorage.setItem('mangakura_user', JSON.stringify(updatedUser));
       }
 
       if (isSupabaseConfigured()) {
@@ -947,7 +956,7 @@ export default function App() {
     for (const acc of list) {
       await upsertAccountToSupabase(acc);
       try {
-        const raw = localStorage.getItem(`inkrealm_mangas_${acc.uid}`);
+        const raw = getStorageItem(`mangakura_mangas_${acc.uid}`);
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) {
@@ -968,7 +977,7 @@ export default function App() {
       'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(list, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `inkrealm_cuentas_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.setAttribute('download', `mangakura_cuentas_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -1153,7 +1162,7 @@ export default function App() {
     };
 
     if (firebaseConfig.apiKey === 'demo-api-key') {
-      const storageKey = `inkrealm_mangas_${user.uid}`;
+      const storageKey = `mangakura_mangas_${user.uid}`;
       setItems((prev) => {
         const exists = prev.some((i) => i.id === targetId);
         const next = exists
@@ -1180,7 +1189,7 @@ export default function App() {
     if (!user) return;
 
     if (firebaseConfig.apiKey === 'demo-api-key') {
-      const storageKey = `inkrealm_mangas_${user.uid}`;
+      const storageKey = `mangakura_mangas_${user.uid}`;
       setItems((prev) => {
         const next = prev.filter((i) => i.id !== id);
         localStorage.setItem(storageKey, JSON.stringify(next));
@@ -1209,7 +1218,7 @@ export default function App() {
     }
 
     if (firebaseConfig.apiKey === 'demo-api-key') {
-      const storageKey = `inkrealm_mangas_${user.uid}`;
+      const storageKey = `mangakura_mangas_${user.uid}`;
       setItems((prev) => {
         const next = prev.map((i) =>
           i.id === id
@@ -1250,7 +1259,7 @@ export default function App() {
     const autoFinished = item.totalChap > 0 && cappedVal >= item.totalChap;
 
     if (firebaseConfig.apiKey === 'demo-api-key') {
-      const storageKey = `inkrealm_mangas_${user.uid}`;
+      const storageKey = `mangakura_mangas_${user.uid}`;
       setItems((prev) => {
         const next = prev.map((i) => {
           if (i.id !== id) return i;
@@ -1342,7 +1351,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-[#070913] flex flex-col items-center justify-center text-slate-200">
         <Loader2 className="w-10 h-10 text-rose-500 animate-spin mb-4" />
-        <p className="text-sm font-semibold tracking-wider text-slate-400">Iniciando InkRealm Tracker...</p>
+        <p className="text-sm font-semibold tracking-wider text-slate-400">Iniciando MangaKura Tracker...</p>
       </div>
     );
   }
@@ -1360,7 +1369,7 @@ export default function App() {
               <ScrollText className="w-7 h-7 text-white" />
             </div>
             <h1 className="text-3xl font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-100 to-slate-400">
-              INK<span className="text-rose-500">REALM</span>
+              MANGA<span className="text-rose-500">KURA</span>
             </h1>
             <p className="text-xs text-slate-400 mt-1">
               Tu biblioteca personal de Manga 🇯🇵, Manhwa 🇰🇷 y Manhua 🇨🇳
@@ -1512,7 +1521,7 @@ export default function App() {
           </div>
 
           <p className="text-center text-[11px] text-slate-500 mt-6">
-            InkRealm Tracker • Sincronización en tiempo real • Catálogo AniList API
+            MangaKura Tracker • Sincronización en tiempo real • Catálogo AniList API
           </p>
         </div>
       </div>
@@ -1553,7 +1562,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-100 to-slate-400">
-                  INK<span className="text-rose-500">REALM</span>
+                  MANGA<span className="text-rose-500">KURA</span>
                 </h1>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hidden sm:inline-flex items-center gap-1">
                   <Globe className="w-2.5 h-2.5" /> AniList API
@@ -2245,7 +2254,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500 mt-auto">
-        <p>InkRealm Tracker • Manga, Manhwa y Manhua con AniList API y Firebase Cloud</p>
+        <p>MangaKura Tracker • Manga, Manhwa y Manhua con AniList API y Firebase Cloud</p>
       </footer>
     </div>
   );

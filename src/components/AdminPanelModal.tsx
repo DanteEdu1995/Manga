@@ -267,7 +267,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const handleInspect = (account: UserAccount) => {
     setInspectingUser(account);
     try {
-      const raw = localStorage.getItem(`inkrealm_mangas_${account.uid}`);
+      const raw = localStorage.getItem(`mangakura_mangas_${account.uid}`) || localStorage.getItem(`inkrealm_mangas_${account.uid}`);
       if (raw) {
         setInspectingMangas(JSON.parse(raw));
       } else {
@@ -284,7 +284,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       displayName: account.displayName || '',
       email: account.email || '',
       role: account.role || 'user',
-      password: account.password || 'inkrealm123'
+      password: account.password || 'mangakura123'
     });
   };
 
@@ -297,7 +297,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         displayName: editForm.displayName.trim() || editForm.email.split('@')[0],
         email: editForm.email.trim(),
         role: editForm.role,
-        password: editForm.password.trim() || 'inkrealm123'
+        password: editForm.password.trim() || 'mangakura123'
       });
     }
     setEditingUser(null);
@@ -763,7 +763,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 const isAccountAdmin = acc.role === 'admin';
                 const isGuest = acc.role === 'guest' || acc.isAnonymous;
                 const isRevealed = !!revealedPasswords[acc.uid];
-                const displayPassword = acc.password || 'inkrealm123';
+                const displayPassword = acc.password || 'mangakura123';
 
                 return (
                   <div
@@ -1013,10 +1013,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               <div>
                 <span className="text-[11px] text-slate-400 block mb-1">Contraseña Actual Registrada:</span>
                 <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs font-mono text-slate-200">
-                  <span>{passwordModalUser.password || 'inkrealm123'}</span>
+                  <span>{passwordModalUser.password || 'mangakura123'}</span>
                   <button
                     type="button"
-                    onClick={() => handleCopyPassword(passwordModalUser.password || 'inkrealm123', 'current')}
+                    onClick={() => handleCopyPassword(passwordModalUser.password || 'mangakura123', 'current')}
                     className="text-slate-400 hover:text-white text-[11px] flex items-center gap-1 font-sans"
                   >
                     <Copy className="w-3 h-3" /> Copiar
