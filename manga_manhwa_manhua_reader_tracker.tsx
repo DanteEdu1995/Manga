@@ -1164,7 +1164,22 @@ export default function App() {
               {authError && (
                 <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-                  <span>{authError}</span>
+                  <div className="flex-1">
+                    <p>{authError}</p>
+                    {!isSupabaseConfigured() && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsVisitorAuthOpen(false);
+                          setIsSupabaseModalOpen(true);
+                        }}
+                        className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold transition text-xs shadow-md active:scale-95"
+                      >
+                        <Database className="w-3.5 h-3.5" />
+                        <span>Configurar Conexión a Supabase ahora</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1250,6 +1265,21 @@ export default function App() {
           </div>
         )}
 
+
+        {/* Modal de Configuración Rápida de Supabase cuando se activa desde el modal */}
+        <SupabaseConfigModal
+          isOpen={isSupabaseModalOpen}
+          onClose={() => {
+            setIsSupabaseModalOpen(false);
+            setIsVisitorAuthOpen(true);
+          }}
+          onConfigSaved={() => {
+            refreshAccountsList();
+            setAuthError('');
+            setIsSupabaseModalOpen(false);
+            setIsVisitorAuthOpen(true);
+          }}
+        />
 
         {/* Footer */}
         <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500 mt-auto">
